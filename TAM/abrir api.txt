@@ -1,0 +1,4 @@
+powershell
+
+cd ".\SmartClimate_API"
+python index.py
