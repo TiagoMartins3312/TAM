@@ -1,2 +1,0 @@
-Teste de envio para o GitHub pela linha de comandos.
-Criado para testar git add, git commit e git push.
