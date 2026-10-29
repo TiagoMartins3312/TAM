@@ -1,0 +1,7 @@
+Utilizador:
+
+smartclimate_teste
+
+Password:
+
+PasswordDeTeste123
