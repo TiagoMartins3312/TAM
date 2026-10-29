@@ -1,0 +1,313 @@
+
+#include <WiFiS3.h>
+#include <HTTPClient.h>
+
+// ================================================
+// SMART CLIMATE - ARDUINO UNO R4 WIFI
+// ================================================
+
+// Wi-Fi configurado nas propriedades da placa Mokxi
+const char* WIFI_SSID = "Mokxi-Lab";
+const char* WIFI_PASS = "breadboard";
+
+// SUBSTITUI pelo URL PUBLICO da tua API
+// Exemplo: https://teu-projeto.vercel.app/api/sensores
+const char* API_URL =
+  "https://SUBSTITUIR-PELO-TEU-DOMINIO/api/sensores";
+
+// Tem de corresponder ao API_TOKEN_ESPERADO do Flask
+const char* API_TOKEN =
+  "SUBSTITUIR_PELO_TOKEN_CONFIGURADO_NO_FLASK";
+
+// Pinos do circuito
+const int SENSOR = A0;
+const int BOTAO = 2;
+const int LED_VERDE = 3;
+const int LED_VERMELHO = 4;
+const int FAN_INA = 5;
+const int FAN_INB = 6;
+
+// Temperatura limite
+const float LIMITE_TEMPERATURA = 20.0;
+
+// Intervalos
+const unsigned long INTERVALO_LEITURA = 5000UL;
+
+// Intervalo curto para testar o envio.
+// Depois dos testes, recomenda-se 30 minutos
+// para reduzir o consumo da quota do Mokxi.
+const unsigned long INTERVALO_API = 30000UL;
+
+// Wi-Fi e HTTP
+WiFiClient clienteWiFi;
+unsigned long ultimaTentativaWiFi = 0;
+unsigned long ultimoEnvioAPI = 0;
+
+// Estado do sistema
+float temperatura = 0.0;
+bool standby = false;
+bool ledsLigados = false;
+bool temLeitura = false;
+bool enviarImediatamente = true;
+
+// Botao com debounce
+bool ultimaLeituraBotao = HIGH;
+bool estadoBotao = HIGH;
+bool botaoArmado = false;
+
+unsigned long ultimaMudancaBotao = 0;
+unsigned long ultimaLeituraTemperatura = 0;
+unsigned long ultimoPiscar = 0;
+
+
+// ================================================
+// LIGAR WI-FI
+// ================================================
+
+void ligarWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+
+  if (ultimaTentativaWiFi != 0 &&
+      millis() - ultimaTentativaWiFi < 10000UL) {
+    return;
+  }
+
+  ultimaTentativaWiFi = millis();
+
+  Serial.println("A ligar ao Wi-Fi...");
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+}
+
+
+// ================================================
+// ENVIAR TEMPERATURA PARA A API
+// ================================================
+
+void enviarTemperatura() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Envio cancelado: Wi-Fi desligado.");
+    return;
+  }
+
+  if (String(API_URL).indexOf("SUBSTITUIR") >= 0 ||
+      String(API_TOKEN).indexOf("SUBSTITUIR") >= 0) {
+    Serial.println("Configura o URL e o token da API.");
+    return;
+  }
+
+  HTTPClient http;
+
+  if (!http.begin(clienteWiFi, API_URL)) {
+    Serial.println("Nao foi possivel iniciar o pedido HTTP.");
+    return;
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader(
+    "Authorization",
+    String("Bearer ") + API_TOKEN
+  );
+
+  // A API Flask atual espera sensor e value.
+  // Nao envia comandos para endpoints que nao existem.
+  String json = "{\"sensor\":\"TMP36\",\"value\":";
+  json += String(temperatura, 2);
+  json += "}";
+
+  Serial.println("A enviar temperatura...");
+  Serial.println(json);
+
+  int codigoHTTP = http.POST(json);
+
+  Serial.print("Resposta HTTP: ");
+  Serial.println(codigoHTTP);
+
+  if (codigoHTTP > 0) {
+    Serial.println(http.getString());
+  } else {
+    Serial.println(HTTPClient::errorToString(codigoHTTP));
+  }
+
+  http.end();
+}
+
+
+// ================================================
+// BOTAO: ALTERNAR NORMAL / STANDBY
+// ================================================
+
+void processarBotao() {
+  bool leitura = digitalRead(BOTAO);
+  unsigned long agora = millis();
+
+  if (leitura != ultimaLeituraBotao) {
+    ultimaLeituraBotao = leitura;
+    ultimaMudancaBotao = agora;
+  }
+
+  if (agora - ultimaMudancaBotao >= 50) {
+    if (leitura != estadoBotao) {
+      estadoBotao = leitura;
+
+      if (estadoBotao == HIGH) {
+        botaoArmado = true;
+      }
+
+      if (estadoBotao == LOW && botaoArmado) {
+        botaoArmado = false;
+        standby = !standby;
+
+        ledsLigados = false;
+        ultimoPiscar = agora;
+
+        if (standby) {
+          analogWrite(FAN_INA, 0);
+          digitalWrite(FAN_INB, LOW);
+
+          digitalWrite(LED_VERDE, LOW);
+          digitalWrite(LED_VERMELHO, LOW);
+
+          Serial.println("STANDBY ATIVO");
+        } else {
+          temLeitura = false;
+          enviarImediatamente = true;
+
+          Serial.println("Medicao retomada");
+        }
+      }
+    }
+  }
+}
+
+
+// ================================================
+// LER TEMPERATURA
+// Sensor TMP36 no A0
+// ================================================
+
+float lerTemperatura() {
+  int valorADC = analogRead(SENSOR);
+
+  // Arduino UNO R4 WiFi: ADC de 14 bits
+  float tensao = valorADC * 5000.0 / 16383.0;
+
+  // TMP36: 500 mV a 0 graus C
+  return (tensao - 500.0) / 10.0;
+}
+
+
+// ================================================
+// CONTROLAR VENTOINHA E LEDS
+// ================================================
+
+void controlarSistema() {
+  digitalWrite(FAN_INB, LOW);
+
+  if (temperatura > LIMITE_TEMPERATURA) {
+    analogWrite(FAN_INA, 255);
+
+    digitalWrite(LED_VERDE, LOW);
+    digitalWrite(LED_VERMELHO, HIGH);
+  } else {
+    analogWrite(FAN_INA, 0);
+
+    digitalWrite(LED_VERDE, HIGH);
+    digitalWrite(LED_VERMELHO, LOW);
+  }
+}
+
+
+// ================================================
+// SETUP
+// ================================================
+
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(14);
+
+  pinMode(BOTAO, INPUT_PULLUP);
+  pinMode(LED_VERDE, OUTPUT);
+  pinMode(LED_VERMELHO, OUTPUT);
+  pinMode(FAN_INA, OUTPUT);
+  pinMode(FAN_INB, OUTPUT);
+
+  digitalWrite(LED_VERDE, LOW);
+  digitalWrite(LED_VERMELHO, LOW);
+  digitalWrite(FAN_INA, LOW);
+  digitalWrite(FAN_INB, LOW);
+
+  // Nao ativa standby automaticamente ao arrancar
+  estadoBotao = digitalRead(BOTAO);
+  ultimaLeituraBotao = estadoBotao;
+  botaoArmado = (estadoBotao == HIGH);
+  ultimaMudancaBotao = millis();
+
+  ligarWiFi();
+
+  Serial.println("Smart Climate iniciado.");
+  Serial.println("Modo normal ativo.");
+}
+
+
+// ================================================
+// LOOP
+// ================================================
+
+void loop() {
+  ligarWiFi();
+  processarBotao();
+
+  unsigned long agora = millis();
+
+  // STANDBY:
+  // - sensor sem leituras
+  // - ventoinha desligada
+  // - os dois LEDs piscam juntos
+  // - nao envia leituras para a API
+  if (standby) {
+    analogWrite(FAN_INA, 0);
+    digitalWrite(FAN_INB, LOW);
+
+    if (agora - ultimoPiscar >= 300) {
+      ultimoPiscar = agora;
+      ledsLigados = !ledsLigados;
+    }
+
+    digitalWrite(LED_VERDE, ledsLigados ? HIGH : LOW);
+    digitalWrite(LED_VERMELHO, ledsLigados ? HIGH : LOW);
+
+    delay(10);
+    return;
+  }
+
+  // Modo normal: ler a temperatura a cada 5 segundos
+  if (!temLeitura ||
+      agora - ultimaLeituraTemperatura >= INTERVALO_LEITURA) {
+
+    temperatura = lerTemperatura();
+    ultimaLeituraTemperatura = millis();
+    temLeitura = true;
+
+    controlarSistema();
+
+    Serial.print("Temperatura: ");
+    Serial.print(temperatura, 2);
+    Serial.println(" C");
+
+    // Envio imediato no arranque, ao retomar,
+    // e depois segundo o intervalo configurado.
+    if (enviarImediatamente ||
+        ultimoEnvioAPI == 0 ||
+        millis() - ultimoEnvioAPI >= INTERVALO_API) {
+
+      enviarTemperatura();
+
+      ultimoEnvioAPI = millis();
+      enviarImediatamente = false;
+    }
+  }
+
+  delay(10);
+}
