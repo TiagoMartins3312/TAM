@@ -1,0 +1,50 @@
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F7F5FC"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvHistoryTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Histórico de temperaturas"
+        android:textColor="#241044"
+        android:textSize="23sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tvHistoryInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Leituras registadas pela API"
+        android:textColor="#756B85"
+        android:textSize="14sp"
+        android:layout_marginBottom="12dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerViewHistory"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/buttonRefreshHistory"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="Atualizar histórico"
+        android:textAllCaps="false" />
+
+    <Button
+        android:id="@+id/buttonBackHistory"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="4dp"
+        android:text="Voltar ao painel"
+        android:textAllCaps="false" />
+
+</LinearLayout>

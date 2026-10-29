@@ -1,0 +1,223 @@
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F7F5FC"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="8dp">
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Painel de controlo"
+        android:textColor="#241044"
+        android:textSize="23sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="12dp" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:cardBackgroundColor="#EDE5FF"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="18dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TEMPERATURA ATUAL"
+                android:textColor="#625477"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvTemperatura"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="-- °C"
+                android:textColor="#35156F"
+                android:textSize="42sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Monitorização da temperatura ambiente"
+                android:textColor="#625477"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        app:cardBackgroundColor="#FFFFFF"
+        app:cardCornerRadius="20dp"
+        app:cardElevation="1dp"
+        app:strokeColor="#E9E1F5"
+        app:strokeWidth="1dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Estado do sistema"
+                android:textColor="#241044"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tvVentoinha"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Ventoinha: desligada"
+                android:textColor="#44365A"
+                android:textSize="15sp"
+                android:paddingVertical="4dp" />
+
+            <TextView
+                android:id="@+id/tvModo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Modo: automático"
+                android:textColor="#44365A"
+                android:textSize="15sp"
+                android:paddingVertical="4dp" />
+
+            <TextView
+                android:id="@+id/tvLedVerde"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="LED verde: ligado"
+                android:textColor="#24834A"
+                android:textSize="15sp"
+                android:paddingVertical="4dp" />
+
+            <TextView
+                android:id="@+id/tvLedVermelho"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="LED vermelho: desligado"
+                android:textColor="#B53D4B"
+                android:textSize="15sp"
+                android:paddingVertical="4dp" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:layout_marginBottom="4dp"
+        android:text="Controlos"
+        android:textColor="#241044"
+        android:textSize="17sp"
+        android:textStyle="bold" />
+
+    <Button
+        android:id="@+id/buttonFan"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="Ligar a ventoinha"
+        android:textAllCaps="false" />
+
+    <Button
+        android:id="@+id/buttonMode"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="4dp"
+        android:text="Mudar para modo manual"
+        android:textAllCaps="false" />
+
+    <!-- Só é apresentado no modo manual -->
+    <LinearLayout
+        android:id="@+id/speedControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/tvFanSpeed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Velocidade da ventoinha: 50%"
+            android:textColor="#241044"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <SeekBar
+            android:id="@+id/seekBarFanSpeed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="50" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="0%"
+                android:textColor="#756B85"
+                android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="100%"
+                android:textColor="#756B85"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/buttonLogs"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="4dp"
+        android:text="Consultar histórico"
+        android:textAllCaps="false" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/button"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="center_horizontal"
+        android:text="Sair"
+        android:textAllCaps="false" />
+
+</LinearLayout>
