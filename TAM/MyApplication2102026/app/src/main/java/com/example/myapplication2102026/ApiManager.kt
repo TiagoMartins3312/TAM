@@ -18,7 +18,7 @@ class ApiManager private constructor(context: Context) {
     private val requestQueue: RequestQueue =
         Volley.newRequestQueue(context.applicationContext)
 
-    private val baseUrl = "http://10.0.2.2:5000"
+    private val baseUrl = "https://tam-omega-silk.vercel.app/"
 
     companion object {
         @Volatile
