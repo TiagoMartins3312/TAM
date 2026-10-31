@@ -13,11 +13,11 @@ const char* WIFI_PASS = "breadboard";
 // SUBSTITUI pelo URL PUBLICO da tua API
 // Exemplo: https://teu-projeto.vercel.app/api/sensores
 const char* API_URL =
-  "https://SUBSTITUIR-PELO-TEU-DOMINIO/api/sensores";
+  "https://tam-omega-silk.vercel.app/api/sensores";
 
 // Tem de corresponder ao API_TOKEN_ESPERADO do Flask
 const char* API_TOKEN =
-  "SUBSTITUIR_PELO_TOKEN_CONFIGURADO_NO_FLASK";
+  "SC-TAM-2026-Mokxi-9f4c2a7b6d1e8f305a7c2d9b4e6f1a83";
 
 // Pinos do circuito
 const int SENSOR = A0;
@@ -99,25 +99,41 @@ void enviarTemperatura() {
 
   HTTPClient http;
 
-  if (!http.begin(clienteWiFi, API_URL)) {
+  if (!http.begin(API_URL)) {
     Serial.println("Nao foi possivel iniciar o pedido HTTP.");
     return;
   }
 
   http.addHeader("Content-Type", "application/json");
-  http.addHeader(
-    "Authorization",
-    String("Bearer ") + API_TOKEN
-  );
 
-  // A API Flask atual espera sensor e value.
-  // Nao envia comandos para endpoints que nao existem.
-  String json = "{\"sensor\":\"TMP36\",\"value\":";
+const char aspas = 34;
+
+  String json = "{";
+  json += aspas;
+  json += "sensor";
+  json += aspas;
+  json += ":";
+  json += aspas;
+  json += "TMP36";
+  json += aspas;
+  json += ",";
+  json += aspas;
+  json += "value";
+  json += aspas;
+  json += ":";
   json += String(temperatura, 2);
+  json += ",";
+  json += aspas;
+  json += "device_token";
+  json += aspas;
+  json += ":";
+  json += aspas;
+  json += API_TOKEN;
+  json += aspas;
   json += "}";
 
   Serial.println("A enviar temperatura...");
-  Serial.println(json);
+  Serial.println("Pedido JSON preparado.");
 
   int codigoHTTP = http.POST(json);
 
