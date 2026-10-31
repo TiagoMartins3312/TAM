@@ -1,3 +1,4 @@
+# Nova publicacao para aplicar as variaveis de ambiente atualizadas do vercel
 import os
 from datetime import datetime, timedelta
 from functools import wraps
