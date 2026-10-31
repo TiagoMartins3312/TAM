@@ -21,12 +21,9 @@ UNAUTHORIZED_CODE = 401
 FORBIDDEN_CODE = 403
 NOT_FOUND = 404
 
-# Token simples para os pedidos enviados pelo dispositivo embebido.
-# Pode ser definido como variável de ambiente API_TOKEN_ESPERADO.
 API_TOKEN_ESPERADO = os.getenv(
-    'API_TOKEN_ESPERADO', 'TokenSecreto_Licenciatura_2026'
-)
-
+    'API_TOKEN_ESPERADO', ''
+).strip()
 
 @app.route('/', methods=['GET'])
 def home():
@@ -35,7 +32,25 @@ def home():
 
 def verificar_token_dispositivo():
     auth_header = request.headers.get('Authorization', '')
-    return auth_header == f'Bearer {API_TOKEN_ESPERADO}'
+    prefix = 'Bearer '
+
+    token_recebido = (
+        auth_header[len(prefix):].strip()
+        if auth_header.startswith(prefix)
+        else ''
+    )
+
+    token_esperado = API_TOKEN_ESPERADO.strip()
+
+    print(
+        f"[AUTH DEBUG] configured={bool(token_esperado)} "
+        f"expected_len={len(token_esperado)} "
+        f"received_len={len(token_recebido)} "
+        f"match={token_recebido == token_esperado}",
+        flush=True
+    )
+
+    return bool(token_esperado) and token_recebido == token_esperado
 
 
 @app.route('/login', methods=['POST'])
