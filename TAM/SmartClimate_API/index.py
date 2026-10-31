@@ -31,24 +31,17 @@ def home():
 
 
 def verificar_token_dispositivo():
-    auth_header = request.headers.get('Authorization', '')
-    prefix = 'Bearer '
-
-    token_recebido = (
-        auth_header[len(prefix):].strip()
-        if auth_header.startswith(prefix)
-        else ''
-    )
-
     token_esperado = API_TOKEN_ESPERADO.strip()
 
-    print(
-        f"[AUTH DEBUG] configured={bool(token_esperado)} "
-        f"expected_len={len(token_esperado)} "
-        f"received_len={len(token_recebido)} "
-        f"match={token_recebido == token_esperado}",
-        flush=True
-    )
+    # Autenticacao por cabecalho (Arduino fisico)
+    auth_header = request.headers.get('Authorization', '')
+
+    if auth_header == f'Bearer {token_esperado}':
+        return True
+
+    # Autenticacao pelo JSON (simulador Mokxi)
+    dados = request.get_json(silent=True) or {}
+    token_recebido = dados.get('device_token', '')
 
     return bool(token_esperado) and token_recebido == token_esperado
 
