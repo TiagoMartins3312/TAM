@@ -74,7 +74,6 @@ def api_add_reading():
             mac=data["mac"],
             sensor=data.get("sensor", "temp"),
             value=data["value"],
-            unit=data.get("unit", "C")
         )
     except ValueError as e:
         return jsonify({"erro": str(e)}), 400
