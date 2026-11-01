@@ -120,7 +120,7 @@ def get_all_devices():
 # Leituras por dispositivo (Arduino)
 # ==========================
 
-def add_reading_by_device(mac, sensor, value"):
+def add_reading_by_device(mac, sensor, value):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -142,7 +142,7 @@ def add_reading_by_device(mac, sensor, value"):
             cur.execute(
                 'INSERT INTO "TAM_Android".readings '
                 '(device_id, sensor, value) '
-                'VALUES (%s, %s, %s, %s) '
+                'VALUES (%s, %s, %s) '
                 'RETURNING sensor, value, criado_em',
                 (device_id, str(sensor), str(value))
             )
@@ -151,8 +151,7 @@ def add_reading_by_device(mac, sensor, value"):
     return {
         "sensor": reading_tuple[0],
         "value": reading_tuple[1],
-        "unit": reading_tuple[2],
-        "criado_em": reading_tuple[3].strftime("%d/%m/%Y %H:%M:%S")
+        "criado_em": reading_tuple[2].strftime("%d/%m/%Y %H:%M:%S")
     }
 
 
@@ -183,22 +182,20 @@ def add_readings_by_device_bulk(mac, readings):
             for r in readings:
                 cur.execute(
                     'INSERT INTO "TAM_Android".readings '
-                    '(device_id, sensor, value, unit) '
-                    'VALUES (%s, %s, %s, %s) '
-                    'RETURNING sensor, value, unit, criado_em',
+                    '(device_id, sensor, value) '
+                    'VALUES (%s, %s, %s) '
+                    'RETURNING sensor, value, criado_em',
                     (
                         device_id,
                         str(r.get("sensor", "temp")),
-                        str(r["value"]),
-                        str(r.get("unit", "C"))
+                        str(r["value"])
                     )
                 )
                 t = cur.fetchone()
                 gravadas.append({
                     "sensor": t[0],
                     "value": t[1],
-                    "unit": t[2],
-                    "criado_em": t[3].strftime("%d/%m/%Y %H:%M:%S")
+                    "criado_em": t[2].strftime("%d/%m/%Y %H:%M:%S")
                 })
 
     return gravadas
@@ -208,7 +205,7 @@ def get_readings_by_device(mac, limit=100):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT r.sensor, r.value, r.unit, r.criado_em '
+                'SELECT r.sensor, r.value, r.criado_em '
                 'FROM "TAM_Android".readings r '
                 'JOIN "TAM_Android".devices d ON d.id = r.device_id '
                 'WHERE d.mac = %s '
@@ -222,7 +219,6 @@ def get_readings_by_device(mac, limit=100):
         readings.append({
             "sensor": row[0],
             "value": row[1],
-            "unit": row[2],
-            "criado_em": row[3].strftime("%d/%m/%Y %H:%M:%S")
+            "criado_em": row[2].strftime("%d/%m/%Y %H:%M:%S")
         })
     return readings
