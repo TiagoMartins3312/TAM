@@ -120,7 +120,7 @@ def get_all_devices():
 # Leituras por dispositivo (Arduino)
 # ==========================
 
-def add_reading_by_device(mac, sensor, value, unit="C"):
+def add_reading_by_device(mac, sensor, value"):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -141,10 +141,10 @@ def add_reading_by_device(mac, sensor, value, unit="C"):
             )
             cur.execute(
                 'INSERT INTO "TAM_Android".readings '
-                '(device_id, sensor, value, unit) '
+                '(device_id, sensor, value) '
                 'VALUES (%s, %s, %s, %s) '
-                'RETURNING sensor, value, unit, criado_em',
-                (device_id, str(sensor), str(value), str(unit))
+                'RETURNING sensor, value, criado_em',
+                (device_id, str(sensor), str(value))
             )
             reading_tuple = cur.fetchone()
 
