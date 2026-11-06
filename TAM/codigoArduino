@@ -10,16 +10,14 @@
 const char* WIFI_SSID = "Mokxi-Lab";
 const char* WIFI_PASS = "breadboard";
 
-// SUBSTITUI pelo URL PUBLICO da tua API
-// Exemplo: https://teu-projeto.vercel.app/api/sensores
+// URL PUBLICO da API
 const char* API_URL =
   "https://tam-omega-silk.vercel.app/api/sensores";
 
-// Tem de corresponder ao API_TOKEN_ESPERADO do Flask
+// API_TOKEN_ESPERADO do Flask
 const char* API_TOKEN =
   "SC-TAM-2026-Mokxi-9f4c2a7b6d1e8f305a7c2d9b4e6f1a83";
 
-// Pinos do circuito
 const int SENSOR = A0;
 const int BOTAO = 2;
 const int LED_VERDE = 3;
@@ -27,86 +25,57 @@ const int LED_VERMELHO = 4;
 const int FAN_INA = 5;
 const int FAN_INB = 6;
 
-// Temperatura limite
+// Configuracoes
 const float LIMITE_TEMPERATURA = 20.0;
 
-// Intervalos
 const unsigned long INTERVALO_LEITURA = 5000UL;
-
-// Intervalo curto para testar o envio.
-// Depois dos testes, recomenda-se 30 minutos
-// para reduzir o consumo da quota do Mokxi.
 const unsigned long INTERVALO_API = 30000UL;
 
-// Wi-Fi e HTTP
-WiFiClient clienteWiFi;
-unsigned long ultimaTentativaWiFi = 0;
-unsigned long ultimoEnvioAPI = 0;
-
-// Estado do sistema
-float temperatura = 0.0;
+float temperatura = 0;
 bool standby = false;
 bool ledsLigados = false;
-bool temLeitura = false;
-bool enviarImediatamente = true;
-
-// Botao com debounce
+bool botaoPressionado = false;
 bool ultimaLeituraBotao = HIGH;
-bool estadoBotao = HIGH;
-bool botaoArmado = false;
+bool temLeitura = false;
 
-unsigned long ultimaMudancaBotao = 0;
+unsigned long ultimaTentativaWiFi = 0;
 unsigned long ultimaLeituraTemperatura = 0;
+unsigned long ultimoEnvioAPI = 0;
+unsigned long ultimaMudancaBotao = 0;
 unsigned long ultimoPiscar = 0;
-
-
-// ================================================
-// LIGAR WI-FI
-// ================================================
 
 void ligarWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     return;
   }
 
-  if (ultimaTentativaWiFi != 0 &&
-      millis() - ultimaTentativaWiFi < 10000UL) {
-    return;
+  if (ultimaTentativaWiFi == 0 ||
+      millis() - ultimaTentativaWiFi >= 10000UL) {
+
+    ultimaTentativaWiFi = millis();
+
+    Serial.println("A ligar ao Wi-Fi...");
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
   }
-
-  ultimaTentativaWiFi = millis();
-
-  Serial.println("A ligar ao Wi-Fi...");
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
 }
-
-
-// ================================================
-// ENVIAR TEMPERATURA PARA A API
-// ================================================
 
 void enviarTemperatura() {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Envio cancelado: Wi-Fi desligado.");
-    return;
-  }
-
-  if (String(API_URL).indexOf("SUBSTITUIR") >= 0 ||
-      String(API_TOKEN).indexOf("SUBSTITUIR") >= 0) {
-    Serial.println("Configura o URL e o token da API.");
+    Serial.println("Wi-Fi desligado.");
     return;
   }
 
   HTTPClient http;
 
   if (!http.begin(API_URL)) {
-    Serial.println("Nao foi possivel iniciar o pedido HTTP.");
+    Serial.println("Erro ao iniciar pedido.");
     return;
   }
 
   http.addHeader("Content-Type", "application/json");
 
-const char aspas = 34;
+  // Criar o JSON
+  const char aspas = 34;
 
   String json = "{";
   json += aspas;
@@ -133,7 +102,6 @@ const char aspas = 34;
   json += "}";
 
   Serial.println("A enviar temperatura...");
-  Serial.println("Pedido JSON preparado.");
 
   int codigoHTTP = http.POST(json);
 
@@ -149,75 +117,16 @@ const char aspas = 34;
   http.end();
 }
 
-
-// ================================================
-// BOTAO: ALTERNAR NORMAL / STANDBY
-// ================================================
-
-void processarBotao() {
-  bool leitura = digitalRead(BOTAO);
-  unsigned long agora = millis();
-
-  if (leitura != ultimaLeituraBotao) {
-    ultimaLeituraBotao = leitura;
-    ultimaMudancaBotao = agora;
-  }
-
-  if (agora - ultimaMudancaBotao >= 50) {
-    if (leitura != estadoBotao) {
-      estadoBotao = leitura;
-
-      if (estadoBotao == HIGH) {
-        botaoArmado = true;
-      }
-
-      if (estadoBotao == LOW && botaoArmado) {
-        botaoArmado = false;
-        standby = !standby;
-
-        ledsLigados = false;
-        ultimoPiscar = agora;
-
-        if (standby) {
-          analogWrite(FAN_INA, 0);
-          digitalWrite(FAN_INB, LOW);
-
-          digitalWrite(LED_VERDE, LOW);
-          digitalWrite(LED_VERMELHO, LOW);
-
-          Serial.println("STANDBY ATIVO");
-        } else {
-          temLeitura = false;
-          enviarImediatamente = true;
-
-          Serial.println("Medicao retomada");
-        }
-      }
-    }
-  }
-}
-
-
-// ================================================
-// LER TEMPERATURA
-// Sensor TMP36 no A0
-// ================================================
-
+// Ler temperatura do TMP36
 float lerTemperatura() {
-  int valorADC = analogRead(SENSOR);
+  int valor = analogRead(SENSOR);
 
-  // Arduino UNO R4 WiFi: ADC de 14 bits
-  float tensao = valorADC * 5000.0 / 16383.0;
+  float tensao = valor * 5000.0 / 16383.0;
 
-  // TMP36: 500 mV a 0 graus C
   return (tensao - 500.0) / 10.0;
 }
 
-
-// ================================================
-// CONTROLAR VENTOINHA E LEDS
-// ================================================
-
+// Controlar ventoinha e LEDs
 void controlarSistema() {
   digitalWrite(FAN_INB, LOW);
 
@@ -234,13 +143,50 @@ void controlarSistema() {
   }
 }
 
+// Controlar o botao
+void processarBotao() {
+  bool leitura = digitalRead(BOTAO);
 
-// ================================================
-// SETUP
-// ================================================
+  if (leitura != ultimaLeituraBotao) {
+    ultimaMudancaBotao = millis();
+    ultimaLeituraBotao = leitura;
+  }
 
+  if (millis() - ultimaMudancaBotao > 50) {
+
+    if (leitura == LOW && !botaoPressionado) {
+      botaoPressionado = true;
+
+      standby = !standby;
+      ledsLigados = false;
+      ultimoPiscar = millis();
+
+      if (standby) {
+        analogWrite(FAN_INA, 0);
+        digitalWrite(FAN_INB, LOW);
+
+        digitalWrite(LED_VERDE, LOW);
+        digitalWrite(LED_VERMELHO, LOW);
+
+        Serial.println("Standby ativo.");
+      } else {
+        temLeitura = false;
+        ultimoEnvioAPI = 0;
+
+        Serial.println("Modo normal ativo.");
+      }
+    }
+
+    if (leitura == HIGH) {
+      botaoPressionado = false;
+    }
+  }
+}
+
+// Configuracao inicial
 void setup() {
   Serial.begin(115200);
+
   analogReadResolution(14);
 
   pinMode(BOTAO, INPUT_PULLUP);
@@ -254,10 +200,8 @@ void setup() {
   digitalWrite(FAN_INA, LOW);
   digitalWrite(FAN_INB, LOW);
 
-  // Nao ativa standby automaticamente ao arrancar
-  estadoBotao = digitalRead(BOTAO);
-  ultimaLeituraBotao = estadoBotao;
-  botaoArmado = (estadoBotao == HIGH);
+  ultimaLeituraBotao = digitalRead(BOTAO);
+  botaoPressionado = (ultimaLeituraBotao == LOW);
   ultimaMudancaBotao = millis();
 
   ligarWiFi();
@@ -266,22 +210,14 @@ void setup() {
   Serial.println("Modo normal ativo.");
 }
 
-
-// ================================================
-// LOOP
-// ================================================
-
+// Programa principal
 void loop() {
   ligarWiFi();
   processarBotao();
 
   unsigned long agora = millis();
 
-  // STANDBY:
-  // - sensor sem leituras
-  // - ventoinha desligada
-  // - os dois LEDs piscam juntos
-  // - nao envia leituras para a API
+  // Modo standby
   if (standby) {
     analogWrite(FAN_INA, 0);
     digitalWrite(FAN_INB, LOW);
@@ -291,18 +227,19 @@ void loop() {
       ledsLigados = !ledsLigados;
     }
 
-    digitalWrite(LED_VERDE, ledsLigados ? HIGH : LOW);
-    digitalWrite(LED_VERMELHO, ledsLigados ? HIGH : LOW);
+    digitalWrite(LED_VERDE, ledsLigados);
+    digitalWrite(LED_VERMELHO, ledsLigados);
 
     delay(10);
     return;
   }
 
-  // Modo normal: ler a temperatura a cada 5 segundos
+  // Ler temperatura
   if (!temLeitura ||
       agora - ultimaLeituraTemperatura >= INTERVALO_LEITURA) {
 
     temperatura = lerTemperatura();
+
     ultimaLeituraTemperatura = millis();
     temLeitura = true;
 
@@ -312,16 +249,13 @@ void loop() {
     Serial.print(temperatura, 2);
     Serial.println(" C");
 
-    // Envio imediato no arranque, ao retomar,
-    // e depois segundo o intervalo configurado.
-    if (enviarImediatamente ||
-        ultimoEnvioAPI == 0 ||
+    // Enviar dados para a API
+    if (ultimoEnvioAPI == 0 ||
         millis() - ultimoEnvioAPI >= INTERVALO_API) {
 
       enviarTemperatura();
 
       ultimoEnvioAPI = millis();
-      enviarImediatamente = false;
     }
   }
 
