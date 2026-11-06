@@ -18,18 +18,18 @@ const char* API_URL =
 const char* API_TOKEN =
   "SC-TAM-2026-Mokxi-9f4c2a7b6d1e8f305a7c2d9b4e6f1a83";
 
+const char* MAC_DEVICE = "02:00:00:00:00:01";
+
 const int SENSOR = A0;
 const int BOTAO = 2;
 const int LED_VERDE = 3;
 const int LED_VERMELHO = 4;
 const int FAN_INA = 5;
 const int FAN_INB = 6;
-
-// Configuracoes
-const float LIMITE_TEMPERATURA = 20.0;
+const float LIMITE_ALERTA = 20.0;
 
 const unsigned long INTERVALO_LEITURA = 5000UL;
-const unsigned long INTERVALO_API = 30000UL;
+const unsigned long INTERVALO_API = 15000UL;
 
 float temperatura = 0;
 bool standby = false;
@@ -37,6 +37,15 @@ bool ledsLigados = false;
 bool botaoPressionado = false;
 bool ultimaLeituraBotao = HIGH;
 bool temLeitura = false;
+
+// Estado recebido da aplicacao
+String modoAtual = "automatico";
+
+bool ventoinhaLigadaAPI = false;
+int velocidadeAPI = 100;
+
+float temperaturaLigar = 28.0;
+float temperaturaDesligar = 26.0;
 
 unsigned long ultimaTentativaWiFi = 0;
 unsigned long ultimaLeituraTemperatura = 0;
@@ -59,6 +68,101 @@ void ligarWiFi() {
   }
 }
 
+String lerCampoJSON(String json, String campo) {
+  String chave = "\"" + campo + "\"";
+
+  int inicio = json.indexOf(chave);
+
+  if (inicio == -1) {
+    return "";
+  }
+
+  inicio = json.indexOf(':', inicio);
+
+  if (inicio == -1) {
+    return "";
+  }
+
+  inicio++;
+
+  while (inicio < json.length() &&
+         json.charAt(inicio) == ' ') {
+    inicio++;
+  }
+
+  if (json.charAt(inicio) == '"') {
+    int fim = json.indexOf('"', inicio + 1);
+
+    if (fim == -1) {
+      return "";
+    }
+
+    return json.substring(inicio + 1, fim);
+  }
+
+  int fim = json.indexOf(',', inicio);
+
+  if (fim == -1) {
+    fim = json.indexOf('}', inicio);
+  }
+
+  if (fim == -1) {
+    return "";
+  }
+
+  String valor = json.substring(inicio, fim);
+  valor.trim();
+
+  return valor;
+}
+
+
+// Receber os comandos enviados pela API
+void receberComandos(String resposta) {
+  String valor;
+
+  valor = lerCampoJSON(resposta, "mode");
+
+  if (valor != "") {
+    modoAtual = valor;
+  }
+
+  valor = lerCampoJSON(resposta, "fan_on");
+
+  if (valor == "true") {
+    ventoinhaLigadaAPI = true;
+  } else if (valor == "false") {
+    ventoinhaLigadaAPI = false;
+  }
+
+  valor = lerCampoJSON(resposta, "fan_speed");
+
+  if (valor != "") {
+    velocidadeAPI = constrain(valor.toInt(), 0, 100);
+  }
+
+  valor = lerCampoJSON(resposta, "temp_on");
+
+  if (valor != "") {
+    temperaturaLigar = valor.toFloat();
+  }
+
+  valor = lerCampoJSON(resposta, "temp_off");
+
+  if (valor != "") {
+    temperaturaDesligar = valor.toFloat();
+  }
+
+  Serial.print("Modo recebido: ");
+  Serial.println(modoAtual);
+
+  Serial.print("Ventoinha: ");
+  Serial.println(ventoinhaLigadaAPI ? "Ligada" : "Desligada");
+
+  Serial.print("Velocidade: ");
+  Serial.println(velocidadeAPI);
+}
+
 void enviarTemperatura() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("Wi-Fi desligado.");
@@ -74,10 +178,10 @@ void enviarTemperatura() {
 
   http.addHeader("Content-Type", "application/json");
 
-  // Criar o JSON
   const char aspas = 34;
 
   String json = "{";
+
   json += aspas;
   json += "sensor";
   json += aspas;
@@ -86,12 +190,14 @@ void enviarTemperatura() {
   json += "TMP36";
   json += aspas;
   json += ",";
+
   json += aspas;
   json += "value";
   json += aspas;
   json += ":";
   json += String(temperatura, 2);
   json += ",";
+
   json += aspas;
   json += "device_token";
   json += aspas;
@@ -99,6 +205,16 @@ void enviarTemperatura() {
   json += aspas;
   json += API_TOKEN;
   json += aspas;
+  json += ",";
+
+  json += aspas;
+  json += "mac";
+  json += aspas;
+  json += ":";
+  json += aspas;
+  json += MAC_DEVICE;
+  json += aspas;
+
   json += "}";
 
   Serial.println("A enviar temperatura...");
@@ -108,10 +224,14 @@ void enviarTemperatura() {
   Serial.print("Resposta HTTP: ");
   Serial.println(codigoHTTP);
 
-  if (codigoHTTP > 0) {
-    Serial.println(http.getString());
+  String resposta = http.getString();
+
+  if (codigoHTTP == 201) {
+    receberComandos(resposta);
+
+    Serial.println("Comandos recebidos da API.");
   } else {
-    Serial.println(HTTPClient::errorToString(codigoHTTP));
+    Serial.println(resposta);
   }
 
   http.end();
@@ -130,14 +250,37 @@ float lerTemperatura() {
 void controlarSistema() {
   digitalWrite(FAN_INB, LOW);
 
-  if (temperatura > LIMITE_TEMPERATURA) {
-    analogWrite(FAN_INA, 255);
+  if (standby || modoAtual == "noturno") {
+    analogWrite(FAN_INA, 0);
+    return;
+  }
 
+  // Controlo automatico da ventoinha
+  if (modoAtual == "automatico") {
+    if (temperatura >= temperaturaLigar) {
+      ventoinhaLigadaAPI = true;
+    }
+
+    if (temperatura <= temperaturaDesligar) {
+      ventoinhaLigadaAPI = false;
+    }
+
+    velocidadeAPI = 100;
+  }
+
+  // Controlar velocidade da ventoinha
+  if (ventoinhaLigadaAPI && velocidadeAPI > 0) {
+    int velocidade = map(velocidadeAPI, 0, 100, 0, 255);
+    analogWrite(FAN_INA, velocidade);
+  } else {
+    analogWrite(FAN_INA, 0);
+  }
+
+  // Alerta de temperatura acima dos 20 graus
+  if (temperatura > LIMITE_ALERTA) {
     digitalWrite(LED_VERDE, LOW);
     digitalWrite(LED_VERMELHO, HIGH);
   } else {
-    analogWrite(FAN_INA, 0);
-
     digitalWrite(LED_VERDE, HIGH);
     digitalWrite(LED_VERMELHO, LOW);
   }
@@ -243,8 +386,6 @@ void loop() {
     ultimaLeituraTemperatura = millis();
     temLeitura = true;
 
-    controlarSistema();
-
     Serial.print("Temperatura: ");
     Serial.print(temperatura, 2);
     Serial.println(" C");
@@ -257,6 +398,21 @@ void loop() {
 
       ultimoEnvioAPI = millis();
     }
+  }
+
+    // Piscar LEDs no modo noturno
+  if (modoAtual == "noturno") {
+
+    if (millis() - ultimoPiscar >= 300) {
+      ultimoPiscar = millis();
+      ledsLigados = !ledsLigados;
+    }
+
+    digitalWrite(LED_VERDE, ledsLigados);
+    digitalWrite(LED_VERMELHO, ledsLigados);
+
+  } else {
+    controlarSistema();
   }
 
   delay(10);
