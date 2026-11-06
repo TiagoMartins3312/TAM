@@ -157,6 +157,7 @@ def set_actuators():
 
 
 # O dispositivo envia as leituras de temperatura para esta rota.
+
 @app.route('/api/sensores', methods=['POST'])
 def receber_sensores():
     if not verificar_token_dispositivo():
@@ -187,12 +188,13 @@ def receber_sensores():
             value=data['value']
         )
 
+        # Atualizar o estado real da ventoinha e dos LEDs
         if all(campo in data for campo in ('fan_on', 'led_1', 'led_2')):
-    db2.update_actuator_outputs(
-        fan_on=data['fan_on'],
-        led_1=data['led_1'],
-        led_2=data['led_2']
-    )
+            db2.update_actuator_outputs(
+                fan_on=data['fan_on'],
+                led_1=data['led_1'],
+                led_2=data['led_2']
+            )
 
         # Obter os comandos definidos na aplicação Android
         estado = db2.get_actuator_state()
