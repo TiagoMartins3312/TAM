@@ -257,16 +257,14 @@ void controlarSistema() {
 
   // Controlo automatico da ventoinha
   if (modoAtual == "automatico") {
-    if (temperatura >= temperaturaLigar) {
-      ventoinhaLigadaAPI = true;
-    }
-
-    if (temperatura <= temperaturaDesligar) {
-      ventoinhaLigadaAPI = false;
+    if (temperatura > LIMITE_ALERTA) {
+        ventoinhaLigadaAPI = true;
+    } else {
+        ventoinhaLigadaAPI = false;
     }
 
     velocidadeAPI = 100;
-  }
+}
 
   // Controlar velocidade da ventoinha
   if (ventoinhaLigadaAPI && velocidadeAPI > 0) {
