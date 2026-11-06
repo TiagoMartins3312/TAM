@@ -29,7 +29,7 @@ const int FAN_INB = 6;
 const float LIMITE_ALERTA = 20.0;
 
 const unsigned long INTERVALO_LEITURA = 5000UL;
-const unsigned long INTERVALO_API = 15000UL;
+const unsigned long INTERVALO_API = 5000UL;
 
 float temperatura = 0;
 bool standby = false;
