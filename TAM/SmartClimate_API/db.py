@@ -192,10 +192,9 @@ def update_actuator_state(data):
         )
 
     if mode == "noturno":
-    fan_on = False
-
+        fan_on = False
     elif mode == "manual" and fan_speed == 0:
-    fan_on = False
+        fan_on = False
 
     with get_connection() as conn:
         with conn.cursor() as cur:
