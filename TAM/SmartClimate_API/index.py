@@ -10,7 +10,7 @@ import db
 import db2
 
 app = Flask(__name__)
-app.debug = True
+app.debug = False
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysecretkey')
 
 NOT_FOUND_CODE = 401
