@@ -157,35 +157,46 @@ def set_actuators():
 
 # O dispositivo envia as leituras de temperatura para esta rota.
 @app.route('/api/sensores', methods=['POST'])
+@app.route('/api/sensores', methods=['POST'])
 def receber_sensores():
     if not verificar_token_dispositivo():
         return jsonify({'erro': 'Nao autorizado'}), UNAUTHORIZED_CODE
 
     data = request.get_json(silent=True) or {}
+
     if 'sensor' not in data or 'value' not in data:
-        return jsonify({'erro': 'JSON invalido: são necessários sensor e value'}), BAD_REQUEST_CODE
+        return jsonify({
+            'erro': 'JSON invalido: são necessários sensor e value'
+        }), BAD_REQUEST_CODE
 
     reading = db.add_reading(data['sensor'], data['value'])
 
-    # Se o dispositivo também enviar o estado efetivo, guardamos essa informação.
+    # Atualizar o estado dos atuadores, se forem enviados dados.
     campos_estado = (
         'fan_on', 'fan_speed', 'led_1', 'led_2',
         'mode', 'temp_on', 'temp_off'
     )
-    estado_enviado = {campo: data[campo] for campo in campos_estado if campo in data}
+
+    estado_enviado = {
+        campo: data[campo]
+        for campo in campos_estado
+        if campo in data
+    }
+
     if estado_enviado:
         try:
             db.update_actuator_state(estado_enviado)
         except (ValueError, TypeError) as error:
             return jsonify({'erro': str(error)}), BAD_REQUEST_CODE
 
+    # Consultar o estado atual para devolver ao Arduino.
     estado = db.get_actuator_state()
 
-return jsonify({
-    'status': 'Leitura guardada',
-    'reading': reading,
-    'actuators': estado
-}), SUCCESS_CODE
+    return jsonify({
+        'status': 'Leitura guardada',
+        'reading': reading,
+        'actuators': estado
+    }), SUCCESS_CODE
 
 # O dispositivo consulta os comandos/estado pretendido guardado na base de dados.
 @app.route('/api/atuadores', methods=['GET'])
