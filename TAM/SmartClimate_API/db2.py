@@ -222,3 +222,14 @@ def get_readings_by_device(mac, limit=100):
             "criado_em": row[2].strftime("%d/%m/%Y %H:%M:%S")
         })
     return readings
+
+def update_actuator_outputs(fan_on, led_1, led_2):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'UPDATE "TAM_Android".actuator_state '
+                'SET fan_on = %s, led_1 = %s, led_2 = %s, '
+                'updated_at = CURRENT_TIMESTAMP '
+                'WHERE id = 1',
+                (fan_on, led_1, led_2)
+            )
