@@ -179,8 +179,13 @@ def receber_sensores():
         except (ValueError, TypeError) as error:
             return jsonify({'erro': str(error)}), BAD_REQUEST_CODE
 
-    return jsonify({'status': 'Leitura guardada', 'reading': reading}), SUCCESS_CODE
+    estado = db.get_actuator_state()
 
+return jsonify({
+    'status': 'Leitura guardada',
+    'reading': reading,
+    'actuators': estado
+}), SUCCESS_CODE
 
 # O dispositivo consulta os comandos/estado pretendido guardado na base de dados.
 @app.route('/api/atuadores', methods=['GET'])
