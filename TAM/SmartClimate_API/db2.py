@@ -223,6 +223,7 @@ def get_readings_by_device(mac, limit=100):
         })
     return readings
 
+
 def update_actuator_outputs(fan_on, led_1, led_2):
     with get_connection() as conn:
         with conn.cursor() as cur:
