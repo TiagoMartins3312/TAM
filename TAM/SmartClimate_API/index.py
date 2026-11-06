@@ -187,6 +187,13 @@ def receber_sensores():
             value=data['value']
         )
 
+        if all(campo in data for campo in ('fan_on', 'led_1', 'led_2')):
+    db2.update_actuator_outputs(
+        fan_on=data['fan_on'],
+        led_1=data['led_1'],
+        led_2=data['led_2']
+    )
+
         # Obter os comandos definidos na aplicação Android
         estado = db2.get_actuator_state()
 
