@@ -1,168 +1,4 @@
 
-#include <WiFiS3.h>
-#include <HTTPClient.h>
-
-// ================================================
-// SMART CLIMATE - ARDUINO UNO R4 WIFI
-// ================================================
-
-// Wi-Fi configurado nas propriedades da placa Mokxi
-const char* WIFI_SSID = "Mokxi-Lab";
-const char* WIFI_PASS = "breadboard";
-
-// URL PUBLICO da API
-const char* API_URL =
-  "https://tam-omega-silk.vercel.app/api/sensores";
-
-// API_TOKEN_ESPERADO do Flask
-const char* API_TOKEN =
-  "SC-TAM-2026-Mokxi-9f4c2a7b6d1e8f305a7c2d9b4e6f1a83";
-
-const char* MAC_DEVICE = "02:00:00:00:00:01";
-
-const int SENSOR = A0;
-const int BOTAO = 2;
-const int LED_VERDE = 3;
-const int LED_VERMELHO = 4;
-const int FAN_INA = 5;
-const int FAN_INB = 6;
-const float LIMITE_ALERTA = 20.0;
-
-const unsigned long INTERVALO_LEITURA = 5000UL;
-const unsigned long INTERVALO_API = 15000UL;
-
-float temperatura = 0;
-bool standby = false;
-bool ledsLigados = false;
-bool botaoPressionado = false;
-bool ultimaLeituraBotao = HIGH;
-bool temLeitura = false;
-
-// Estado recebido da aplicacao
-String modoAtual = "automatico";
-
-bool ventoinhaLigadaAPI = false;
-int velocidadeAPI = 100;
-
-float temperaturaLigar = 28.0;
-float temperaturaDesligar = 26.0;
-
-unsigned long ultimaTentativaWiFi = 0;
-unsigned long ultimaLeituraTemperatura = 0;
-unsigned long ultimoEnvioAPI = 0;
-unsigned long ultimaMudancaBotao = 0;
-unsigned long ultimoPiscar = 0;
-
-void ligarWiFi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    return;
-  }
-
-  if (ultimaTentativaWiFi == 0 ||
-      millis() - ultimaTentativaWiFi >= 10000UL) {
-
-    ultimaTentativaWiFi = millis();
-
-    Serial.println("A ligar ao Wi-Fi...");
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-  }
-}
-
-String lerCampoJSON(String json, String campo) {
-  String chave = "\"" + campo + "\"";
-
-  int inicio = json.indexOf(chave);
-
-  if (inicio == -1) {
-    return "";
-  }
-
-  inicio = json.indexOf(':', inicio);
-
-  if (inicio == -1) {
-    return "";
-  }
-
-  inicio++;
-
-  while (inicio < json.length() &&
-         json.charAt(inicio) == ' ') {
-    inicio++;
-  }
-
-  if (json.charAt(inicio) == '"') {
-    int fim = json.indexOf('"', inicio + 1);
-
-    if (fim == -1) {
-      return "";
-    }
-
-    return json.substring(inicio + 1, fim);
-  }
-
-  int fim = json.indexOf(',', inicio);
-
-  if (fim == -1) {
-    fim = json.indexOf('}', inicio);
-  }
-
-  if (fim == -1) {
-    return "";
-  }
-
-  String valor = json.substring(inicio, fim);
-  valor.trim();
-
-  return valor;
-}
-
-
-// Receber os comandos enviados pela API
-void receberComandos(String resposta) {
-  String valor;
-
-  valor = lerCampoJSON(resposta, "mode");
-
-  if (valor != "") {
-    modoAtual = valor;
-  }
-
-  valor = lerCampoJSON(resposta, "fan_on");
-
-  if (valor == "true") {
-    ventoinhaLigadaAPI = true;
-  } else if (valor == "false") {
-    ventoinhaLigadaAPI = false;
-  }
-
-  valor = lerCampoJSON(resposta, "fan_speed");
-
-  if (valor != "") {
-    velocidadeAPI = constrain(valor.toInt(), 0, 100);
-  }
-
-  valor = lerCampoJSON(resposta, "temp_on");
-
-  if (valor != "") {
-    temperaturaLigar = valor.toFloat();
-  }
-
-  valor = lerCampoJSON(resposta, "temp_off");
-
-  if (valor != "") {
-    temperaturaDesligar = valor.toFloat();
-  }
-
-  Serial.print("Modo recebido: ");
-  Serial.println(modoAtual);
-
-  Serial.print("Ventoinha: ");
-  Serial.println(ventoinhaLigadaAPI ? "Ligada" : "Desligada");
-
-  Serial.print("Velocidade: ");
-  Serial.println(velocidadeAPI);
-}
-
 void enviarTemperatura() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("Wi-Fi desligado.");
@@ -180,6 +16,16 @@ void enviarTemperatura() {
 
   const char aspas = 34;
 
+  // Obter o estado atual dos componentes
+  bool fanReal = !standby &&
+                 modoAtual != "noturno" &&
+                 ventoinhaLigadaAPI &&
+                 velocidadeAPI > 0;
+
+  bool ledVerdeReal = digitalRead(LED_VERDE) == HIGH;
+  bool ledVermelhoReal = digitalRead(LED_VERMELHO) == HIGH;
+
+  // Construir JSON
   String json = "{";
 
   json += aspas;
@@ -214,6 +60,30 @@ void enviarTemperatura() {
   json += aspas;
   json += MAC_DEVICE;
   json += aspas;
+  json += ",";
+
+  // Estado da ventoinha
+  json += aspas;
+  json += "fan_on";
+  json += aspas;
+  json += ":";
+  json += (fanReal ? "true" : "false");
+  json += ",";
+
+  // Estado do LED verde
+  json += aspas;
+  json += "led_1";
+  json += aspas;
+  json += ":";
+  json += (ledVerdeReal ? "true" : "false");
+  json += ",";
+
+  // Estado do LED vermelho
+  json += aspas;
+  json += "led_2";
+  json += aspas;
+  json += ":";
+  json += (ledVermelhoReal ? "true" : "false");
 
   json += "}";
 
@@ -235,183 +105,4 @@ void enviarTemperatura() {
   }
 
   http.end();
-}
-
-// Ler temperatura do TMP36
-float lerTemperatura() {
-  int valor = analogRead(SENSOR);
-
-  float tensao = valor * 5000.0 / 16383.0;
-
-  return (tensao - 500.0) / 10.0;
-}
-
-// Controlar ventoinha e LEDs
-void controlarSistema() {
-  digitalWrite(FAN_INB, LOW);
-
-  if (standby || modoAtual == "noturno") {
-    analogWrite(FAN_INA, 0);
-    return;
-  }
-
-  // Controlo automatico da ventoinha
-  if (modoAtual == "automatico") {
-    if (temperatura > LIMITE_ALERTA) {
-        ventoinhaLigadaAPI = true;
-    } else {
-        ventoinhaLigadaAPI = false;
-    }
-
-    velocidadeAPI = 100;
-}
-
-  // Controlar velocidade da ventoinha
-  if (ventoinhaLigadaAPI && velocidadeAPI > 0) {
-    int velocidade = map(velocidadeAPI, 0, 100, 0, 255);
-    analogWrite(FAN_INA, velocidade);
-  } else {
-    analogWrite(FAN_INA, 0);
-  }
-
-  // Alerta de temperatura acima dos 20 graus
-  if (temperatura > LIMITE_ALERTA) {
-    digitalWrite(LED_VERDE, LOW);
-    digitalWrite(LED_VERMELHO, HIGH);
-  } else {
-    digitalWrite(LED_VERDE, HIGH);
-    digitalWrite(LED_VERMELHO, LOW);
-  }
-}
-
-// Controlar o botao
-void processarBotao() {
-  bool leitura = digitalRead(BOTAO);
-
-  if (leitura != ultimaLeituraBotao) {
-    ultimaMudancaBotao = millis();
-    ultimaLeituraBotao = leitura;
-  }
-
-  if (millis() - ultimaMudancaBotao > 50) {
-
-    if (leitura == LOW && !botaoPressionado) {
-      botaoPressionado = true;
-
-      standby = !standby;
-      ledsLigados = false;
-      ultimoPiscar = millis();
-
-      if (standby) {
-        analogWrite(FAN_INA, 0);
-        digitalWrite(FAN_INB, LOW);
-
-        digitalWrite(LED_VERDE, LOW);
-        digitalWrite(LED_VERMELHO, LOW);
-
-        Serial.println("Standby ativo.");
-      } else {
-        temLeitura = false;
-        ultimoEnvioAPI = 0;
-
-        Serial.println("Modo normal ativo.");
-      }
-    }
-
-    if (leitura == HIGH) {
-      botaoPressionado = false;
-    }
-  }
-}
-
-// Configuracao inicial
-void setup() {
-  Serial.begin(115200);
-
-  analogReadResolution(14);
-
-  pinMode(BOTAO, INPUT_PULLUP);
-  pinMode(LED_VERDE, OUTPUT);
-  pinMode(LED_VERMELHO, OUTPUT);
-  pinMode(FAN_INA, OUTPUT);
-  pinMode(FAN_INB, OUTPUT);
-
-  digitalWrite(LED_VERDE, LOW);
-  digitalWrite(LED_VERMELHO, LOW);
-  digitalWrite(FAN_INA, LOW);
-  digitalWrite(FAN_INB, LOW);
-
-  ultimaLeituraBotao = digitalRead(BOTAO);
-  botaoPressionado = (ultimaLeituraBotao == LOW);
-  ultimaMudancaBotao = millis();
-
-  ligarWiFi();
-
-  Serial.println("Smart Climate iniciado.");
-  Serial.println("Modo normal ativo.");
-}
-
-// Programa principal
-void loop() {
-  ligarWiFi();
-  processarBotao();
-
-  unsigned long agora = millis();
-
-  // Modo standby
-  if (standby) {
-    analogWrite(FAN_INA, 0);
-    digitalWrite(FAN_INB, LOW);
-
-    if (agora - ultimoPiscar >= 300) {
-      ultimoPiscar = agora;
-      ledsLigados = !ledsLigados;
-    }
-
-    digitalWrite(LED_VERDE, ledsLigados);
-    digitalWrite(LED_VERMELHO, ledsLigados);
-
-    delay(10);
-    return;
-  }
-
-  // Ler temperatura
-  if (!temLeitura ||
-      agora - ultimaLeituraTemperatura >= INTERVALO_LEITURA) {
-
-    temperatura = lerTemperatura();
-
-    ultimaLeituraTemperatura = millis();
-    temLeitura = true;
-
-    Serial.print("Temperatura: ");
-    Serial.print(temperatura, 2);
-    Serial.println(" C");
-
-    // Enviar dados para a API
-    if (ultimoEnvioAPI == 0 ||
-        millis() - ultimoEnvioAPI >= INTERVALO_API) {
-
-      enviarTemperatura();
-
-      ultimoEnvioAPI = millis();
-    }
-  }
-
-    // Piscar LEDs no modo noturno
-  if (modoAtual == "noturno") {
-
-    if (millis() - ultimoPiscar >= 300) {
-      ultimoPiscar = millis();
-      ledsLigados = !ledsLigados;
-    }
-
-    digitalWrite(LED_VERDE, ledsLigados);
-    digitalWrite(LED_VERMELHO, ledsLigados);
-
-  } else {
-    controlarSistema();
-  }
-
-  delay(10);
 }
