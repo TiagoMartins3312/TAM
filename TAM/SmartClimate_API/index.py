@@ -7,6 +7,7 @@ import jwt
 from flask import Flask, jsonify, request
 
 import db
+import db2
 
 app = Flask(__name__)
 app.debug = True
@@ -157,40 +158,41 @@ def set_actuators():
 
 # O dispositivo envia as leituras de temperatura para esta rota.
 @app.route('/api/sensores', methods=['POST'])
-@app.route('/api/sensores', methods=['POST'])
 def receber_sensores():
     if not verificar_token_dispositivo():
         return jsonify({'erro': 'Nao autorizado'}), UNAUTHORIZED_CODE
 
     data = request.get_json(silent=True) or {}
 
-    if 'sensor' not in data or 'value' not in data:
+    if 'sensor' not in data or 'value' not in data or 'mac' not in data:
         return jsonify({
-            'erro': 'JSON invalido: são necessários sensor e value'
+            'erro': 'São necessários os campos sensor, value e mac.'
         }), BAD_REQUEST_CODE
 
-    reading = db.add_reading(data['sensor'], data['value'])
+    try:
+        mac = data['mac']
 
-    # Atualizar o estado dos atuadores, se forem enviados dados.
-    campos_estado = (
-        'fan_on', 'fan_speed', 'led_1', 'led_2',
-        'mode', 'temp_on', 'temp_off'
-    )
+        # Registar ou atualizar o dispositivo
+        db2.register_device(
+            mac=mac,
+            name='Smart Climate Mokxi',
+            ip=request.remote_addr,
+            firmware='Mokxi'
+        )
 
-    estado_enviado = {
-        campo: data[campo]
-        for campo in campos_estado
-        if campo in data
-    }
+        # Guardar a temperatura associada ao dispositivo
+        reading = db2.add_reading_by_device(
+            mac=mac,
+            sensor=data['sensor'],
+            value=data['value']
+        )
 
-    if estado_enviado:
-        try:
-            db.update_actuator_state(estado_enviado)
-        except (ValueError, TypeError) as error:
-            return jsonify({'erro': str(error)}), BAD_REQUEST_CODE
+        # Obter os comandos definidos na aplicação Android
+        estado = db2.get_actuator_state()
 
-    # Consultar o estado atual para devolver ao Arduino.
-    estado = db.get_actuator_state()
+    except Exception as error:
+        app.logger.exception("Erro ao processar dados do dispositivo")
+        return jsonify({'erro': str(error)}), 500
 
     return jsonify({
         'status': 'Leitura guardada',
