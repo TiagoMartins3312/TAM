@@ -263,9 +263,10 @@ void enviarTemperatura() {
 
   if (codigoHTTP == 201) {
     receberComandos(resposta);
+    controlarSistema();
 
     Serial.println("Comandos recebidos da API.");
-  } else {
+} else {
     Serial.println(resposta);
   }
 
