@@ -130,7 +130,8 @@ def get_data():
 @app.route('/actuators', methods=['GET'])
 @auth_required
 def get_actuators():
-    state = db.get_actuator_state()
+    # A aplicação vê o estado real comunicado pelo Arduino.
+    state = db.get_actuator_display_state()
     if state is None:
         return jsonify({'error': 'Estado dos atuadores não encontrado'}), NOT_FOUND
     return jsonify(state), OK_CODE
@@ -149,7 +150,11 @@ def set_actuators():
         return jsonify({'error': 'invalid parameters'}), BAD_REQUEST_CODE
 
     try:
-        state = db.update_actuator_state(data)
+        # Guardar o comando pretendido pela aplicação.
+        db.update_actuator_state(data)
+
+        # Devolver o estado real mais recente do dispositivo.
+        state = db.get_actuator_display_state()
     except (ValueError, TypeError) as error:
         return jsonify({'error': str(error)}), BAD_REQUEST_CODE
 

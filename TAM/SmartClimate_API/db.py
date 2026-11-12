@@ -162,6 +162,33 @@ def get_actuator_state():
     }
 
 
+def get_actuator_display_state():
+    # Devolve os estados reais comunicados pelo Arduino,
+    # mantendo os comandos pretendidos separados.
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT fan_actual_on, fan_speed, led_1_actual, led_2_actual, '
+                'mode, temp_on, temp_off, updated_at '
+                'FROM "TAM_Android".actuator_state WHERE id = 1'
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "fan_on": row[0],
+        "fan_speed": row[1],
+        "led_1": row[2],
+        "led_2": row[3],
+        "mode": row[4],
+        "temp_on": float(row[5]),
+        "temp_off": float(row[6]),
+        "updated_at": row[7].strftime("%d/%m/%Y %H:%M:%S")
+    }
+
+
 def update_actuator_state(data):
     current = get_actuator_state()
 
