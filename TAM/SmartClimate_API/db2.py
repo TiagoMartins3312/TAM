@@ -234,3 +234,67 @@ def update_actuator_outputs(fan_on, led_1, led_2):
                 'WHERE id = 1',
                 (fan_on, led_1, led_2)
             )
+
+
+def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None):
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+
+            # Registar o dispositivo
+            cur.execute(
+                'INSERT INTO "TAM_Android".devices '
+                '(mac, name, ip, firmware, last_seen) '
+                'VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP) '
+                'ON CONFLICT (mac) DO UPDATE '
+                'SET ip = COALESCE(EXCLUDED.ip, "TAM_Android".devices.ip), '
+                'name = COALESCE(EXCLUDED.name, "TAM_Android".devices.name), '
+                'firmware = COALESCE(EXCLUDED.firmware, "TAM_Android".devices.firmware), '
+                'last_seen = CURRENT_TIMESTAMP '
+                'RETURNING id',
+                (mac, 'Smart Climate Mokxi', ip, 'Mokxi')
+            )
+
+            device_id = cur.fetchone()[0]
+
+            # Guardar temperatura
+            cur.execute(
+                'INSERT INTO "TAM_Android".readings '
+                '(device_id, sensor, value) '
+                'VALUES (%s, %s, %s) '
+                'RETURNING sensor, value, criado_em',
+                (device_id, str(sensor), str(value))
+            )
+
+            leitura = cur.fetchone()
+
+            # Consultar comandos da aplicação
+            cur.execute(
+                'SELECT fan_on, fan_speed, led_1, led_2, mode, '
+                'temp_on, temp_off, updated_at '
+                'FROM "TAM_Android".actuator_state WHERE id = 1'
+            )
+
+            estado = cur.fetchone()
+
+    if estado is None:
+        raise ValueError("Estado dos atuadores não encontrado.")
+
+    reading = {
+        "sensor": leitura[0],
+        "value": leitura[1],
+        "criado_em": leitura[2].strftime("%d/%m/%Y %H:%M:%S")
+    }
+
+    actuators = {
+        "fan_on": estado[0],
+        "fan_speed": estado[1],
+        "led_1": estado[2],
+        "led_2": estado[3],
+        "mode": estado[4],
+        "temp_on": float(estado[5]),
+        "temp_off": float(estado[6]),
+        "updated_at": estado[7].strftime("%d/%m/%Y %H:%M:%S")
+    }
+
+    return reading, actuators
