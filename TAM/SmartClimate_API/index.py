@@ -163,8 +163,10 @@ def set_actuators():
 
 # O dispositivo envia as leituras de temperatura para esta rota.
 
+
 @app.route('/api/sensores', methods=['POST'])
 def receber_sensores():
+
     if not verificar_token_dispositivo():
         return jsonify({'erro': 'Nao autorizado'}), UNAUTHORIZED_CODE
 
@@ -176,33 +178,12 @@ def receber_sensores():
         }), BAD_REQUEST_CODE
 
     try:
-        mac = data['mac']
-
-        # Registar ou atualizar o dispositivo
-        db2.register_device(
-            mac=mac,
-            name='Smart Climate Mokxi',
-            ip=request.remote_addr,
-            firmware='Mokxi'
-        )
-
-        # Guardar a temperatura associada ao dispositivo
-        reading = db2.add_reading_by_device(
-            mac=mac,
+        reading, estado = db2.guardar_leitura_e_obter_comandos(
+            mac=data['mac'],
             sensor=data['sensor'],
-            value=data['value']
+            value=data['value'],
+            ip=request.remote_addr
         )
-
-        # Atualizar o estado real da ventoinha e dos LEDs
-        if all(campo in data for campo in ('fan_on', 'led_1', 'led_2')):
-            db2.update_actuator_outputs(
-                fan_on=data['fan_on'],
-                led_1=data['led_1'],
-                led_2=data['led_2']
-            )
-
-        # Obter os comandos definidos na aplicação Android
-        estado = db2.get_actuator_state()
 
     except Exception as error:
         app.logger.exception("Erro ao processar dados do dispositivo")
@@ -213,6 +194,7 @@ def receber_sensores():
         'reading': reading,
         'actuators': estado
     }), SUCCESS_CODE
+
 
 # O dispositivo consulta os comandos/estado pretendido guardado na base de dados.
 @app.route('/api/atuadores', methods=['GET'])
