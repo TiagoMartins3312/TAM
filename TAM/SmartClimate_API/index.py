@@ -142,9 +142,9 @@ def get_actuators():
 def set_actuators():
     data = request.get_json(silent=True) or {}
     campos_permitidos = (
-        'fan_on', 'fan_speed', 'led_1', 'led_2',
-        'mode', 'temp_on', 'temp_off'
-    )
+    'fan_on', 'led_1', 'led_2',
+    'mode', 'temp_on', 'temp_off'
+)
 
     if not any(campo in data for campo in campos_permitidos):
         return jsonify({'error': 'invalid parameters'}), BAD_REQUEST_CODE
