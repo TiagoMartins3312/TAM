@@ -192,7 +192,9 @@ def get_actuator_display_state():
     }
 
 
+
 def update_actuator_state(data):
+
     current = get_actuator_state()
 
     if current is None:
@@ -201,15 +203,15 @@ def update_actuator_state(data):
         )
 
     fan_on = data.get("fan_on", current["fan_on"])
-    fan_speed = int(data.get("fan_speed", current["fan_speed"]))
     led_1 = data.get("led_1", current["led_1"])
     led_2 = data.get("led_2", current["led_2"])
     mode = data.get("mode", current["mode"])
     temp_on = float(data.get("temp_on", current["temp_on"]))
     temp_off = float(data.get("temp_off", current["temp_off"]))
 
-    if not 0 <= fan_speed <= 100:
-        raise ValueError("A velocidade tem de estar entre 0 e 100.")
+    # Velocidade deixa de ser controlável.
+    # Mantemos 50 apenas para compatibilidade com o campo antigo.
+    fan_speed = 50
 
     if mode not in ("automatico", "manual", "noturno"):
         raise ValueError(
@@ -222,8 +224,6 @@ def update_actuator_state(data):
         )
 
     if mode == "noturno":
-        fan_on = False
-    elif mode == "manual" and fan_speed == 0:
         fan_on = False
 
     with get_connection() as conn:
