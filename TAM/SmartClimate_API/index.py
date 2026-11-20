@@ -110,7 +110,15 @@ def auth_required(f):
         except jwt.InvalidTokenError:
             return jsonify({'error': 'Token inválido'}), FORBIDDEN_CODE
 
-        user = db.get_user(data['user_id'])
+        # Se a BD estiver cheia de ligações, responde em JSON (e não em HTML).
+        try:
+            user = db.get_user(data['user_id'])
+        except Exception:
+            app.logger.exception("Erro ao validar o utilizador")
+            return jsonify({
+                'error': 'Base de dados ocupada, tenta outra vez.'
+            }), 503
+
         if user is None:
             return jsonify({'error': 'Utilizador não encontrado'}), UNAUTHORIZED_CODE
 
@@ -152,12 +160,17 @@ def set_actuators():
 
     try:
         # Guardar o comando pretendido pela aplicação.
-        db.update_actuator_state(data)
-
-        # Devolver o estado real mais recente do dispositivo.
-        state = db.get_actuator_display_state()
+        # Já devolve o estado real mais recente do dispositivo.
+        state = db.update_actuator_state(data)
     except (ValueError, TypeError) as error:
         return jsonify({'error': str(error)}), BAD_REQUEST_CODE
+    except Exception:
+        # Normalmente é o "too many connections" da BD da escola.
+        # Devolvemos JSON em vez da página de erro HTML do Flask.
+        app.logger.exception("Erro ao guardar o comando da app")
+        return jsonify({
+            'error': 'Base de dados ocupada, tenta outra vez.'
+        }), 503
 
     return jsonify(state), OK_CODE
 

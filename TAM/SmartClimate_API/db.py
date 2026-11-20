@@ -253,4 +253,6 @@ def update_actuator_state(data):
                 )
             )
 
-    return get_actuator_state()
+    # Devolve logo o estado para a app (comandos + estado real do Arduino).
+    # Assim o index.py não precisa de abrir mais uma ligação à BD.
+    return get_actuator_display_state()
