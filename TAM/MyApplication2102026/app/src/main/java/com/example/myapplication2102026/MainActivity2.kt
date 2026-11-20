@@ -48,8 +48,9 @@ class MainActivity2 : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    // De 5 em 5 segundos vamos buscar a temperatura e o estado.
-    private val updateInterval = 5000L
+    // De 10 em 10 segundos vamos buscar a temperatura e o estado.
+    // (com 5 s a BD da escola dava "too many connections")
+    private val updateInterval = 10000L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
