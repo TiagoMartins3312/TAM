@@ -10,8 +10,6 @@ import android.view.View
 import android.widget.Button
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import android.widget.LinearLayout
-import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -28,22 +26,30 @@ class MainActivity2 : AppCompatActivity() {
     private lateinit var tvModo: TextView
     private lateinit var tvLedVerde: TextView
     private lateinit var tvLedVermelho: TextView
-    private lateinit var tvFanSpeed: TextView
-
-    private lateinit var speedControls: LinearLayout
-    private lateinit var seekBarFanSpeed: SeekBar
 
     private lateinit var buttonFan: Button
-    private lateinit var buttonMode: Button
+    private lateinit var buttonStandby: Button
     private lateinit var buttonLogs: Button
     private lateinit var buttonSair: Button
 
-    private var ventoinhaLigada = false
-    private var modoAtual = "automatico"
-    private var velocidadeAtual = 50
+    // Comando guardado na API (o que a app pediu).
+    // true = a ventoinha pode ligar sozinha quando está calor (automático)
+    // false = a ventoinha fica desligada pela app
+    private var comandoVentoinhaLigada = true
+
+    // Estado REAL da ventoinha, enviado pelo Arduino (Mokxi).
+    private var ventoinhaLigadaReal = false
+
+    // Standby: ventoinha desligada e os dois LEDs a piscar.
+    private var standbyAtivo = false
+
+    // Para não mandar dois pedidos ao mesmo tempo.
+    private var pedidoEmCurso = false
 
     private val handler = Handler(Looper.getMainLooper())
-    private val updateInterval = 30000L
+
+    // De 5 em 5 segundos vamos buscar a temperatura e o estado.
+    private val updateInterval = 5000L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -81,13 +87,9 @@ class MainActivity2 : AppCompatActivity() {
         tvModo = findViewById(R.id.tvModo)
         tvLedVerde = findViewById(R.id.tvLedVerde)
         tvLedVermelho = findViewById(R.id.tvLedVermelho)
-        tvFanSpeed = findViewById(R.id.tvFanSpeed)
-
-        speedControls = findViewById(R.id.speedControls)
-        seekBarFanSpeed = findViewById(R.id.seekBarFanSpeed)
 
         buttonFan = findViewById(R.id.buttonFan)
-        buttonMode = findViewById(R.id.buttonMode)
+        buttonStandby = findViewById(R.id.buttonStandby)
         buttonLogs = findViewById(R.id.buttonLogs)
         buttonSair = findViewById(R.id.button)
 
@@ -106,71 +108,24 @@ class MainActivity2 : AppCompatActivity() {
             startActivity(intent)
         }
 
-        // Alternar entre o modo automático e o modo manual.
-        buttonMode.setOnClickListener {
-            val novoModo = if (modoAtual == "automatico") {
-                "manual"
-            } else {
-                "automatico"
-            }
-
-            enviarAlteracao(
-                JSONObject().put("mode", novoModo)
-            )
-        }
-
-        // Ligar ou desligar a ventoinha no modo manual.
-        buttonFan.setOnClickListener {
-            val novoEstado = !ventoinhaLigada
-
-            val velocidade = if (novoEstado) {
-                if (velocidadeAtual == 0) 50 else velocidadeAtual
-            } else {
-                velocidadeAtual
-            }
-
+        // Ligar ou sair do standby (LEDs a piscar ao mesmo tempo no Mokxi).
+        buttonStandby.setOnClickListener {
             val dados = JSONObject()
-                .put("fan_on", novoEstado)
-                .put("fan_speed", velocidade)
-                .put("mode", "manual")
+                .put("standby", !standbyAtivo)
 
             enviarAlteracao(dados)
         }
 
-        // Alterar a velocidade através da barra deslizante.
-        seekBarFanSpeed.max = 100
+        // Ligar ou desligar a ventoinha. Agora funciona sempre
+        // (já não depende do modo manual, que foi retirado).
+        buttonFan.setOnClickListener {
+            // Trocamos o COMANDO e não o estado real, porque o real
+            // pode demorar uns segundos a mudar no Arduino.
+            val dados = JSONObject()
+                .put("fan_on", !comandoVentoinhaLigada)
 
-        seekBarFanSpeed.setOnSeekBarChangeListener(
-            object : SeekBar.OnSeekBarChangeListener {
-
-                override fun onProgressChanged(
-                    seekBar: SeekBar?,
-                    progress: Int,
-                    fromUser: Boolean
-                ) {
-                    tvFanSpeed.text =
-                        "Velocidade da ventoinha: $progress%"
-                }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                    // Não é necessária uma ação neste momento.
-                }
-
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    if (modoAtual == "manual") {
-                        val velocidade = seekBarFanSpeed.progress
-                        velocidadeAtual = velocidade
-
-                        val dados = JSONObject()
-                            .put("fan_speed", velocidade)
-                            .put("fan_on", velocidade > 0)
-                            .put("mode", "manual")
-
-                        enviarAlteracao(dados)
-                    }
-                }
-            }
-        )
+            enviarAlteracao(dados)
+        }
 
         if (token.isEmpty()) {
             Toast.makeText(
@@ -184,36 +139,35 @@ class MainActivity2 : AppCompatActivity() {
     }
 
     private fun enviarAlteracao(dados: JSONObject) {
-        buttonFan.isEnabled = false
-        buttonMode.isEnabled = false
-        seekBarFanSpeed.isEnabled = false
+        // Se ainda estamos à espera da resposta anterior, ignoramos o clique.
+        if (pedidoEmCurso) {
+            return
+        }
+
+        pedidoEmCurso = true
 
         api.setActuatorState(
             token = token,
             dados = dados,
             onSuccess = { resposta ->
+                pedidoEmCurso = false
+
                 atualizarEstado(resposta)
 
                 Toast.makeText(
                     this,
-                    "Estado do sistema atualizado.",
+                    "Comando enviado. O Mokxi aplica-o em poucos segundos.",
                     Toast.LENGTH_SHORT
                 ).show()
-
-                buttonFan.isEnabled = true
-                buttonMode.isEnabled = true
-                seekBarFanSpeed.isEnabled = modoAtual == "manual"
             },
             onError = { erro ->
+                pedidoEmCurso = false
+
                 Toast.makeText(
                     this,
                     "Não foi possível atualizar o sistema: $erro",
                     Toast.LENGTH_LONG
                 ).show()
-
-                buttonFan.isEnabled = true
-                buttonMode.isEnabled = true
-                seekBarFanSpeed.isEnabled = modoAtual == "manual"
 
                 atualizarEstadoDaAPI()
             }
@@ -221,62 +175,69 @@ class MainActivity2 : AppCompatActivity() {
     }
 
     private fun atualizarEstado(dados: JSONObject) {
-        ventoinhaLigada = dados.optBoolean("fan_on", false)
-        modoAtual = dados.optString("mode", "automatico")
-        velocidadeAtual = dados.optInt("fan_speed", 50)
+        // fan_on = comando da app | fan_actual_on = estado real do Arduino
+        comandoVentoinhaLigada = dados.optBoolean("fan_on", true)
+        ventoinhaLigadaReal = dados.optBoolean("fan_actual_on", false)
+        standbyAtivo = dados.optBoolean("standby", false)
 
-        tvVentoinha.text = if (ventoinhaLigada) {
-            "Ventoinha: ligada"
+        tvVentoinha.text = when {
+            standbyAtivo -> "Ventoinha: desligada (standby)"
+
+            // A app mandou desligar mas o Mokxi ainda não aplicou.
+            !comandoVentoinhaLigada && ventoinhaLigadaReal ->
+                "Ventoinha: a desligar..."
+
+            !comandoVentoinhaLigada -> "Ventoinha: desligada pela app"
+
+            ventoinhaLigadaReal -> "Ventoinha: ligada"
+
+            // Comando ligado, mas está fresco (abaixo do limite).
+            else -> "Ventoinha: desligada (temperatura baixa)"
+        }
+
+        tvModo.text = if (standbyAtivo) {
+            "Modo: standby"
         } else {
-            "Ventoinha: desligada"
+            "Modo: automático"
         }
 
-        val nomeModo = when (modoAtual) {
-            "automatico" -> "automático"
-            "manual" -> "manual"
-            "noturno" -> "noturno"
-            else -> modoAtual
-        }
-
-        tvModo.text = "Modo: $nomeModo"
-
-        tvLedVerde.text = if (dados.optBoolean("led_1", true)) {
-            "LED verde: ligado"
+        // Em standby os LEDs estão sempre a piscar, por isso
+        // não faz sentido mostrar ligado/desligado.
+        if (standbyAtivo) {
+            tvLedVerde.text = "LED verde: a piscar"
+            tvLedVermelho.text = "LED vermelho: a piscar"
         } else {
-            "LED verde: desligado"
-        }
+            tvLedVerde.text = if (dados.optBoolean("led_1", false)) {
+                "LED verde: ligado"
+            } else {
+                "LED verde: desligado"
+            }
 
-        tvLedVermelho.text = if (dados.optBoolean("led_2", false)) {
-            "LED vermelho: ligado"
-        } else {
-            "LED vermelho: desligado"
+            tvLedVermelho.text = if (dados.optBoolean("led_2", false)) {
+                "LED vermelho: ligado"
+            } else {
+                "LED vermelho: desligado"
+            }
         }
-
-        seekBarFanSpeed.progress = velocidadeAtual
-        tvFanSpeed.text = "Velocidade da ventoinha: $velocidadeAtual%"
 
         atualizarInterface()
     }
 
     private fun atualizarInterface() {
-        speedControls.visibility = if (modoAtual == "manual") {
-            View.VISIBLE
-        } else {
-            View.GONE
-        }
+        // Os dois botões estão sempre clicáveis.
+        buttonFan.isEnabled = true
+        buttonStandby.isEnabled = true
 
-        seekBarFanSpeed.isEnabled = modoAtual == "manual"
-
-        buttonFan.text = if (ventoinhaLigada) {
+        buttonFan.text = if (comandoVentoinhaLigada) {
             "Desligar a ventoinha"
         } else {
             "Ligar a ventoinha"
         }
 
-        buttonMode.text = if (modoAtual == "automatico") {
-            "Mudar para modo manual"
+        buttonStandby.text = if (standbyAtivo) {
+            "Sair do standby"
         } else {
-            "Mudar para modo automático"
+            "Mudar para standby"
         }
     }
 
@@ -284,7 +245,10 @@ class MainActivity2 : AppCompatActivity() {
         api.getActuatorState(
             token = token,
             onSuccess = { estado ->
-                atualizarEstado(estado)
+                // Não mexer no ecrã enquanto um comando está a ser enviado.
+                if (!pedidoEmCurso) {
+                    atualizarEstado(estado)
+                }
             },
             onError = { erro ->
                 Log.e(

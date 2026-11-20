@@ -49,3 +49,32 @@ CREATE TABLE IF NOT EXISTS actuator_state (
     temp_off    FLOAT NOT NULL DEFAULT 26.0,
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
+-- =====================================================
+-- MIGRAÇÃO 20/11 - Standby pela app + estado real do Arduino
+-- Correr uma vez no pgAdmin (na BD dos componentes).
+-- Pode ser corrido várias vezes sem problema.
+-- =====================================================
+
+-- Comando de standby (LEDs a piscar, ventoinha desligada).
+ALTER TABLE "TAM_Android".actuator_state
+    ADD COLUMN IF NOT EXISTS standby BOOLEAN NOT NULL DEFAULT false;
+
+-- Estado físico reportado pelo Arduino (separado dos comandos da app).
+ALTER TABLE "TAM_Android".actuator_state
+    ADD COLUMN IF NOT EXISTS fan_actual_on BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "TAM_Android".actuator_state
+    ADD COLUMN IF NOT EXISTS led_1_actual BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "TAM_Android".actuator_state
+    ADD COLUMN IF NOT EXISTS led_2_actual BOOLEAN NOT NULL DEFAULT false;
+
+-- O modo manual deixou de existir.
+UPDATE "TAM_Android".actuator_state
+    SET mode = 'automatico'
+    WHERE mode = 'manual';
+
+-- Garantir que a linha única existe.
+INSERT INTO "TAM_Android".actuator_state (id)
+    VALUES (1)
+    ON CONFLICT (id) DO NOTHING;

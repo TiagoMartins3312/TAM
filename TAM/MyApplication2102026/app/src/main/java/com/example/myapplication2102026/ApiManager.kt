@@ -18,7 +18,8 @@ class ApiManager private constructor(context: Context) {
     private val requestQueue: RequestQueue =
         Volley.newRequestQueue(context.applicationContext)
 
-    private val baseUrl = "https://tam-omega-silk.vercel.app/"
+    // Sem "/" no fim, senão os URLs ficam ".app//actuators".
+    private val baseUrl = "https://tam-omega-silk.vercel.app"
 
     companion object {
         @Volatile

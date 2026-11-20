@@ -24,7 +24,8 @@ const float LIMITE_TEMPERATURA = 20.0;
 
 // Intervalos
 const unsigned long INTERVALO_LEITURA = 5000UL;
-const unsigned long INTERVALO_API = 10000UL;
+// Baixámos de 10 s para 5 s para a app responder mais depressa
+const unsigned long INTERVALO_API = 5000UL;
 
 // Comunicação
 unsigned long ultimaTentativaWiFi = 0;
@@ -38,14 +39,18 @@ bool enviarImediatamente = true;
 // Estado do sistema
 float temperatura = 0.0;
 
-String modoAtual = "automatico";
-
+// Comando da app: true = ventoinha pode ligar (automático pela temperatura)
+//                 false = ventoinha desligada pela app
 bool comandoVentoinhaLigada = false;
 bool ventoinhaLigadaReal = false;
 
-// Standby local
+// Standby (pode vir da app ou do botão físico)
 bool standby = false;
 bool ledsLigados = false;
+
+// Fica true quando o botão físico muda o standby e ainda
+// não avisámos a API (para a app não o desfazer logo a seguir)
+bool standbyPendente = false;
 
 bool ultimaLeituraBotao = HIGH;
 bool estadoBotao = HIGH;
@@ -218,35 +223,51 @@ bool receberComandos(String resposta) {
     return false;
   }
 
-  String novoModo = lerCampoJSON(
-    atuadores,
-    "mode"
-  );
-
+  // O modo manual foi retirado, por isso já não lemos o "mode".
+  // Agora só interessam estes dois comandos da app:
   String novoEstado = lerCampoJSON(
     atuadores,
     "fan_on"
   );
 
-  if (novoModo.length() == 0 || novoEstado.length() == 0) {
+  String novoStandby = lerCampoJSON(
+    atuadores,
+    "standby"
+  );
+
+  if (novoEstado.length() == 0 || novoStandby.length() == 0) {
     Serial.println("ERRO: comandos incompletos.");
     return false;
   }
 
-  modoAtual = novoModo;
-
   comandoVentoinhaLigada = (novoEstado == "true");
+
+  bool standbyDaApp = (novoStandby == "true");
+
+  // Se o standby mudou pela app, começa a piscar do zero
+  if (standbyDaApp != standby) {
+
+    standby = standbyDaApp;
+
+    ledsLigados = false;
+
+    ultimoPiscar = millis();
+
+    Serial.println(
+      standby ? "STANDBY ATIVADO PELA APP" : "STANDBY DESATIVADO PELA APP"
+    );
+  }
 
   Serial.println("----------------------------");
   Serial.println("COMANDOS RECEBIDOS DA APP");
 
-  Serial.print("Modo: ");
-  Serial.println(modoAtual);
-
   Serial.print("Ventoinha: ");
   Serial.println(
-    comandoVentoinhaLigada ? "LIGADA" : "DESLIGADA"
+    comandoVentoinhaLigada ? "PERMITIDA (AUTOMATICO)" : "DESLIGADA PELA APP"
   );
+
+  Serial.print("Standby: ");
+  Serial.println(standby ? "SIM" : "NAO");
 
   Serial.println("----------------------------");
 
@@ -271,22 +292,11 @@ void controlarSistema() {
   }
 
   // MODO AUTOMATICO
-  if (modoAtual == "automatico") {
-
-    ligarVentoinha = temperatura > LIMITE_TEMPERATURA;
-  }
-
-  // MODO MANUAL
-  else if (modoAtual == "manual") {
-
-    ligarVentoinha = comandoVentoinhaLigada;
-  }
-
-  // MODO NOTURNO
-  else if (modoAtual == "noturno") {
-
-    ligarVentoinha = false;
-  }
+  // A ventoinha só liga se a app deixar (fan_on = true)
+  // E se a temperatura passar o limite.
+  // Se a app mandar desligar, fica desligada seja qual for a temperatura.
+  ligarVentoinha = comandoVentoinhaLigada &&
+                   temperatura > LIMITE_TEMPERATURA;
 
   // CONTROLAR RELE
   digitalWrite(RELE, ligarVentoinha ? HIGH : LOW);
@@ -340,7 +350,9 @@ http.begin(API_URL);
   json += API_TOKEN;
   json += "\"";
 
-  json += ",\"fan_on\":";
+  // Estado REAL da ventoinha (antes chamava-se "fan_on", mas isso
+  // apagava o comando da app na base de dados)
+  json += ",\"fan_actual_on\":";
   json += (ventoinhaLigadaReal ? "true" : "false");
 
   json += ",\"led_1\":";
@@ -348,6 +360,12 @@ http.begin(API_URL);
 
   json += ",\"led_2\":";
   json += (digitalRead(LED_VERMELHO) ? "true" : "false");
+
+  // Só mandamos o standby quando foi o botão físico a mudá-lo
+  if (standbyPendente) {
+    json += ",\"standby\":";
+    json += (standby ? "true" : "false");
+  }
 
   json += "}";
 
@@ -374,10 +392,24 @@ if (codigoHTTP < 0) {
 
   if (codigoHTTP == 201 || codigoHTTP == 200) {
 
+    // A API já guardou o standby do botão físico
+    standbyPendente = false;
+
+    // Guardar o estado antes dos comandos para ver se mudou algo
+    bool ventoinhaAntes = ventoinhaLigadaReal;
+    bool standbyAntes = standby;
+
     if (receberComandos(resposta)) {
       controlarSistema();
 
       Serial.println("Comandos aplicados no Arduino.");
+
+      // Se a app mudou alguma coisa, voltamos a enviar logo
+      // para a app ver o novo estado real (sem esperar 5 s)
+      if (ventoinhaLigadaReal != ventoinhaAntes ||
+          standby != standbyAntes) {
+        enviarImediatamente = true;
+      }
     }
   }
 
@@ -426,18 +458,21 @@ void processarBotao() {
 
         ultimoPiscar = agora;
 
+        // Avisar a API logo a seguir para a app ficar igual ao Mokxi
+        standbyPendente = true;
+
+        enviarImediatamente = true;
+
         if (standby) {
 
-          Serial.println("STANDBY ATIVO");
+          Serial.println("STANDBY ATIVO (BOTAO)");
         }
 
         else {
 
           temLeitura = false;
 
-          enviarImediatamente = true;
-
-          Serial.println("STANDBY DESATIVADO");
+          Serial.println("STANDBY DESATIVADO (BOTAO)");
         }
 
         controlarSistema();
@@ -514,7 +549,7 @@ void loop() {
     Serial.println(" C");
   }
 
-  // Aplicar o modo e os comandos atuais
+  // Aplicar os comandos atuais (app + temperatura)
   controlarSistema();
 
   // Standby: piscar os dois LEDs
@@ -543,11 +578,13 @@ void loop() {
       ultimoEnvioAPI == 0 ||
       agora - ultimoEnvioAPI >= INTERVALO_API) {
 
+    // Pomos a false ANTES de enviar, porque o enviarTemperatura()
+    // pode voltar a pô-la a true se a app tiver mudado alguma coisa
+    enviarImediatamente = false;
+
     enviarTemperatura();
 
     ultimoEnvioAPI = millis();
-
-    enviarImediatamente = false;
   }
 
   delay(10);

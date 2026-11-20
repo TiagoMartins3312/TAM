@@ -236,10 +236,33 @@ def update_actuator_outputs(fan_on, led_1, led_2):
             )
 
 
-def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None):
+def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None,
+                                     fan_actual_on=None, led_1=None,
+                                     led_2=None, standby_local=None):
 
     with get_connection() as conn:
         with conn.cursor() as cur:
+
+            # Estado físico real que o Arduino está a aplicar.
+            # Fica em colunas próprias para nunca apagar os comandos da app.
+            if fan_actual_on is not None:
+                cur.execute(
+                    'UPDATE "TAM_Android".actuator_state '
+                    'SET fan_actual_on = %s, '
+                    'led_1_actual = COALESCE(%s, led_1_actual), '
+                    'led_2_actual = COALESCE(%s, led_2_actual) '
+                    'WHERE id = 1',
+                    (fan_actual_on, led_1, led_2)
+                )
+
+            # O botão físico do Mokxi mudou o standby: passa a ser o comando.
+            if standby_local is not None:
+                cur.execute(
+                    'UPDATE "TAM_Android".actuator_state '
+                    'SET standby = %s, updated_at = CURRENT_TIMESTAMP '
+                    'WHERE id = 1',
+                    (standby_local,)
+                )
 
             # Registar o dispositivo
             cur.execute(
@@ -271,7 +294,7 @@ def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None):
             # Consultar comandos da aplicação
             cur.execute(
                 'SELECT fan_on, fan_speed, led_1, led_2, mode, '
-                'temp_on, temp_off, updated_at '
+                'temp_on, temp_off, updated_at, standby '
                 'FROM "TAM_Android".actuator_state WHERE id = 1'
             )
 
@@ -294,7 +317,8 @@ def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None):
         "mode": estado[4],
         "temp_on": float(estado[5]),
         "temp_off": float(estado[6]),
-        "updated_at": estado[7].strftime("%d/%m/%Y %H:%M:%S")
+        "updated_at": estado[7].strftime("%d/%m/%Y %H:%M:%S"),
+        "standby": estado[8]
     }
 
     return reading, actuators
