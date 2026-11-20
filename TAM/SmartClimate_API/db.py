@@ -138,11 +138,12 @@ def get_all_readings():
 
 
 def get_actuator_state():
+    # Comandos pretendidos (o que a app pediu).
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 'SELECT fan_on, fan_speed, led_1, led_2, mode, '
-                'temp_on, temp_off, updated_at '
+                'temp_on, temp_off, updated_at, standby '
                 'FROM "TAM_Android".actuator_state WHERE id = 1'
             )
             row = cur.fetchone()
@@ -158,7 +159,8 @@ def get_actuator_state():
         "mode": row[4],
         "temp_on": float(row[5]),
         "temp_off": float(row[6]),
-        "updated_at": row[7].strftime("%d/%m/%Y %H:%M:%S")
+        "updated_at": row[7].strftime("%d/%m/%Y %H:%M:%S"),
+        "standby": row[8]
     }
 
 
@@ -169,7 +171,8 @@ def get_actuator_display_state():
         with conn.cursor() as cur:
             cur.execute(
                 'SELECT fan_on, fan_actual_on, fan_speed, '
-                'led_1_actual, led_2_actual, mode, temp_on, temp_off, updated_at '
+                'led_1_actual, led_2_actual, mode, temp_on, temp_off, '
+                'updated_at, standby '
                 'FROM "TAM_Android".actuator_state WHERE id = 1'
             )
             row = cur.fetchone()
@@ -188,7 +191,9 @@ def get_actuator_display_state():
         "mode": row[5],
         "temp_on": float(row[6]),
         "temp_off": float(row[7]),
-        "updated_at": row[8].strftime("%d/%m/%Y %H:%M:%S")
+        "updated_at": row[8].strftime("%d/%m/%Y %H:%M:%S"),
+        # standby é o comando (app ou botão físico do Arduino).
+        "standby": row[9]
     }
 
 
@@ -203,6 +208,8 @@ def update_actuator_state(data):
         )
 
     fan_on = data.get("fan_on", current["fan_on"])
+    # Novo: standby pedido pela app (LEDs a piscar e ventoinha desligada).
+    standby = data.get("standby", current["standby"])
     led_1 = data.get("led_1", current["led_1"])
     led_2 = data.get("led_2", current["led_2"])
     mode = data.get("mode", current["mode"])
@@ -213,9 +220,14 @@ def update_actuator_state(data):
     # Mantemos 50 apenas para compatibilidade com o campo antigo.
     fan_speed = 50
 
-    if mode not in ("automatico", "manual", "noturno"):
+    # O modo manual foi retirado. Se ainda vier "manual" de algum
+    # lado, passa a automático para não dar erro.
+    if mode == "manual":
+        mode = "automatico"
+
+    if mode not in ("automatico", "noturno"):
         raise ValueError(
-            "O modo tem de ser automatico, manual ou noturno."
+            "O modo tem de ser automatico ou noturno."
         )
 
     if temp_on <= temp_off:
@@ -232,12 +244,12 @@ def update_actuator_state(data):
                 'UPDATE "TAM_Android".actuator_state '
                 'SET fan_on = %s, fan_speed = %s, '
                 'led_1 = %s, led_2 = %s, mode = %s, '
-                'temp_on = %s, temp_off = %s, '
+                'temp_on = %s, temp_off = %s, standby = %s, '
                 'updated_at = CURRENT_TIMESTAMP '
                 'WHERE id = 1',
                 (
                     fan_on, fan_speed, led_1, led_2,
-                    mode, temp_on, temp_off
+                    mode, temp_on, temp_off, standby
                 )
             )
 

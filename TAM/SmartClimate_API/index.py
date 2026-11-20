@@ -141,8 +141,9 @@ def get_actuators():
 @auth_required
 def set_actuators():
     data = request.get_json(silent=True) or {}
+    # 'standby' foi acrescentado para o novo botão da app.
     campos_permitidos = (
-    'fan_on', 'led_1', 'led_2',
+    'fan_on', 'standby', 'led_1', 'led_2',
     'mode', 'temp_on', 'temp_off'
 )
 
@@ -178,11 +179,18 @@ def receber_sensores():
         }), BAD_REQUEST_CODE
 
     try:
+        # Além da temperatura, o Arduino envia o estado real
+        # (ventoinha e LEDs) para a app mostrar o que está mesmo a acontecer.
+        # O campo 'standby' só vem quando o botão físico do Mokxi foi carregado.
         reading, estado = db2.guardar_leitura_e_obter_comandos(
             mac=data['mac'],
             sensor=data['sensor'],
             value=data['value'],
-            ip=request.remote_addr
+            ip=request.remote_addr,
+            fan_actual_on=data.get('fan_actual_on'),
+            led_1=data.get('led_1'),
+            led_2=data.get('led_2'),
+            standby_local=data.get('standby')
         )
 
     except Exception as error:
