@@ -3,7 +3,9 @@ import psycopg2
 from contextlib import contextmanager
 
 
-# Liga à base de dados e fecha sempre a ligação no final.
+# abre a ligação à base de dados e fecha sempre no fim
+# (sem isto a bd da escola dava erro de demasiadas ligações)
+# os.environ.get vai buscar variáveis de ambiente a outro ficheiro, para evitar hardcoding.
 @contextmanager
 def get_connection():
     conn = psycopg2.connect(
@@ -13,7 +15,7 @@ def get_connection():
         user=os.environ.get("DATABASE_USER"),
         password=os.environ.get("PASSWORD")
     )
-
+# Cria um novo objeto capaz de conectar com a base de dados.
     try:
         yield conn
         conn.commit()
@@ -23,10 +25,8 @@ def get_connection():
     finally:
         conn.close()
 
-# ==========================
-# Utilizadores e autenticação
-# ==========================
 
+# ver se o username já existe
 def user_exists(user):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -38,6 +38,8 @@ def user_exists(user):
     return count > 0
 
 
+# login, o crypt compara a password com a que está encriptada na bd
+# O cursor cria um canal capaz de executar e devolver os resultados de uma querry
 def login(username, password):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -57,6 +59,7 @@ def login(username, password):
     }
 
 
+# ir buscar um utilizador pelo id
 def get_user(user_id):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -75,6 +78,9 @@ def get_user(user_id):
     }
 
 
+# criar utilizador com a password encriptada
+# gen_salt cria mais uma camada de interpretação, garante que seja impossivel imediatamente ver
+# que duas palavras passes iguais (em texto normal) sejam perceptiveis.
 def add_user(user):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -91,27 +97,7 @@ def add_user(user):
     }
 
 
-# ==========================
-# Leituras de temperatura
-# ==========================
-
-def add_reading(sensor, value):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                'INSERT INTO "TAM_Android".readings (sensor, value) '
-                'VALUES (%s, %s) RETURNING sensor, value, criado_em',
-                (str(sensor), str(value))
-            )
-            reading_tuple = cur.fetchone()
-
-    return {
-        "sensor": reading_tuple[0],
-        "value": reading_tuple[1],
-        "criado_em": reading_tuple[2].strftime("%d/%m/%Y %H:%M:%S")
-    }
-
-
+# últimas 100 temperaturas, a mais recente vem primeiro
 def get_all_readings():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -121,7 +107,7 @@ def get_all_readings():
                 'ORDER BY criado_em DESC LIMIT 100'
             )
             rows = cur.fetchall()
-
+# A função strftime serve para tornar uma timestamp em algo perceptivel para o ver do utilizador
     readings = []
     for row in rows:
         readings.append({
@@ -132,13 +118,9 @@ def get_all_readings():
     return readings
 
 
-# ==========================
-# Estado da ventoinha e LEDs
-# ==========================
-
-
+# comandos que a app pediu (só existe uma linha na tabela, por isso id = 1).
+# Em futuras versões será possivel uma atualização para permitir a manipulação de mais dispositivos arduino.
 def get_actuator_state():
-    # Comandos pretendidos (o que a app pediu).
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -164,9 +146,8 @@ def get_actuator_state():
     }
 
 
+# estado para mostrar na app: o comando e o que o arduino está mesmo a fazer
 def get_actuator_display_state():
-    # Devolve os estados reais comunicados pelo Arduino,
-    # mantendo os comandos pretendidos separados.
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -181,8 +162,7 @@ def get_actuator_display_state():
         return None
 
     return {
-        # fan_on é o comando pretendido pela aplicação.
-        # fan_actual_on é o último estado físico reportado pelo Arduino.
+        # fan_on é o que a app pediu, fan_actual_on é o que o arduino diz
         "fan_on": row[0],
         "fan_actual_on": row[1],
         "fan_speed": row[2],
@@ -192,23 +172,20 @@ def get_actuator_display_state():
         "temp_on": float(row[6]),
         "temp_off": float(row[7]),
         "updated_at": row[8].strftime("%d/%m/%Y %H:%M:%S"),
-        # standby é o comando (app ou botão físico do Arduino).
         "standby": row[9]
     }
 
 
 
+# guardar os comandos que vêm da app
 def update_actuator_state(data):
-
     current = get_actuator_state()
 
     if current is None:
-        raise ValueError(
-            "O estado inicial dos atuadores não existe na base de dados."
-        )
+        raise ValueError("O estado inicial dos atuadores não existe na base de dados.")
 
+    # se um campo não vier no pedido fica o valor que já estava
     fan_on = data.get("fan_on", current["fan_on"])
-    # Novo: standby pedido pela app (LEDs a piscar e ventoinha desligada).
     standby = data.get("standby", current["standby"])
     led_1 = data.get("led_1", current["led_1"])
     led_2 = data.get("led_2", current["led_2"])
@@ -216,28 +193,23 @@ def update_actuator_state(data):
     temp_on = float(data.get("temp_on", current["temp_on"]))
     temp_off = float(data.get("temp_off", current["temp_off"]))
 
-    # Velocidade deixa de ser controlável.
-    # Mantemos 50 apenas para compatibilidade com o campo antigo.
+    # a velocidade não é usada, fica sempre 50
     fan_speed = 50
 
-    # O modo manual foi retirado. Se ainda vier "manual" de algum
-    # lado, passa a automático para não dar erro.
+    # não há modo manual, por isso passa a automático
     if mode == "manual":
         mode = "automatico"
 
     if mode not in ("automatico", "noturno"):
-        raise ValueError(
-            "O modo tem de ser automatico ou noturno."
-        )
+        raise ValueError("O modo tem de ser automatico ou noturno.")
 
     if temp_on <= temp_off:
-        raise ValueError(
-            "A temperatura de ativação tem de ser superior à de desativação."
-        )
+        raise ValueError("A temperatura de ativação tem de ser superior à de desativação.")
 
+    # à noite a ventoinha fica desligada
     if mode == "noturno":
         fan_on = False
-
+    # Atualiza os valores do actuator
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -253,6 +225,4 @@ def update_actuator_state(data):
                 )
             )
 
-    # Devolve logo o estado para a app (comandos + estado real do Arduino).
-    # Assim o index.py não precisa de abrir mais uma ligação à BD.
     return get_actuator_display_state()
