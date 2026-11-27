@@ -1,4 +1,3 @@
-# Nova publicacao para aplicar as variaveis de ambiente atualizadas do vercel
 import os
 from datetime import datetime, timedelta
 from functools import wraps
@@ -22,34 +21,35 @@ UNAUTHORIZED_CODE = 401
 FORBIDDEN_CODE = 403
 NOT_FOUND = 404
 
-API_TOKEN_ESPERADO = os.getenv(
-    'API_TOKEN_ESPERADO', ''
-).strip()
+# token do arduino, está nas variáveis do vercel
+API_TOKEN_ESPERADO = os.getenv('API_TOKEN_ESPERADO', '').strip()
 
+
+# rota para testar se a api está a funcionar
 @app.route('/', methods=['GET'])
 def home():
     return 'Welcome to Smart Climate API!'
 
 
+# ver se o pedido vem mesmo do nosso arduino
 def verificar_token_dispositivo():
-    token_esperado = API_TOKEN_ESPERADO.strip()
+    # se não houver token definido no vercel ninguém entra
+    if API_TOKEN_ESPERADO == '':
+        return False
 
-    # Autenticacao por cabecalho (Arduino fisico)
+    # o arduino manda o token no cabeçalho
     auth_header = request.headers.get('Authorization', '')
-
-    if auth_header == f'Bearer {token_esperado}':
+    if auth_header == 'Bearer ' + API_TOKEN_ESPERADO:
         return True
 
-    # Autenticacao pelo JSON (simulador Mokxi)
+    # ou no json (simulador mokxi)
     dados = request.get_json(silent=True) or {}
-    token_recebido = dados.get('device_token', '')
-
-    return bool(token_esperado) and token_recebido == token_esperado
+    return dados.get('device_token', '') == API_TOKEN_ESPERADO
 
 
+# login da app, devolve o token jwt
 @app.route('/login', methods=['POST'])
 def login():
-    print("DEBUG: PEDIDO LOGIN RECEBIDO", flush=True)
     data = request.get_json(silent=True) or {}
     if 'username' not in data or 'password' not in data:
         return jsonify({'error': 'invalid parameters'}), BAD_REQUEST_CODE
@@ -58,6 +58,7 @@ def login():
     if user is None:
         return jsonify({'error': 'Check credentials'}), NOT_FOUND_CODE
 
+    # o token dura 12 horas
     token = jwt.encode(
         {
             'user_id': user['id'],
@@ -67,7 +68,7 @@ def login():
         algorithm='HS256'
     )
 
-    # Compatibilidade com versões do PyJWT que devolvem bytes.
+    # algumas versões do PyJWT devolvem bytes
     if isinstance(token, bytes):
         token = token.decode('UTF-8')
 
@@ -75,6 +76,7 @@ def login():
     return jsonify(user), OK_CODE
 
 
+# criar conta
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json(silent=True) or {}
@@ -91,6 +93,7 @@ def register():
     return jsonify(user), SUCCESS_CODE
 
 
+# verifica o token jwt antes de entrar nas rotas protegidas
 def auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -110,14 +113,12 @@ def auth_required(f):
         except jwt.InvalidTokenError:
             return jsonify({'error': 'Token inválido'}), FORBIDDEN_CODE
 
-        # Se a BD estiver cheia de ligações, responde em JSON (e não em HTML).
+        # se a bd estiver cheia de ligações devolve 503
         try:
             user = db.get_user(data['user_id'])
         except Exception:
             app.logger.exception("Erro ao validar o utilizador")
-            return jsonify({
-                'error': 'Base de dados ocupada, tenta outra vez.'
-            }), 503
+            return jsonify({'error': 'Base de dados ocupada, tenta outra vez.'}), 503
 
         if user is None:
             return jsonify({'error': 'Utilizador não encontrado'}), UNAUTHORIZED_CODE
@@ -127,60 +128,51 @@ def auth_required(f):
     return decorated
 
 
-# A aplicação Android do professor já consulta a rota /data.
+# histórico das temperaturas
 @app.route('/data', methods=['GET'])
 @auth_required
 def get_data():
     return jsonify(db.get_all_readings()), OK_CODE
 
 
-# A aplicação Android consulta e altera o estado pretendido do sistema.
+# a app vê o estado da ventoinha, leds e standby
 @app.route('/actuators', methods=['GET'])
 @auth_required
 def get_actuators():
-    # A aplicação vê o estado real comunicado pelo Arduino.
     state = db.get_actuator_display_state()
     if state is None:
         return jsonify({'error': 'Estado dos atuadores não encontrado'}), NOT_FOUND
     return jsonify(state), OK_CODE
 
 
+# a app manda os comandos
 @app.route('/actuators', methods=['POST'])
 @auth_required
 def set_actuators():
     data = request.get_json(silent=True) or {}
-    # 'standby' foi acrescentado para o novo botão da app.
     campos_permitidos = (
-    'fan_on', 'standby', 'led_1', 'led_2',
-    'mode', 'temp_on', 'temp_off'
-)
+        'fan_on', 'standby', 'led_1', 'led_2',
+        'mode', 'temp_on', 'temp_off'
+    )
 
     if not any(campo in data for campo in campos_permitidos):
         return jsonify({'error': 'invalid parameters'}), BAD_REQUEST_CODE
 
     try:
-        # Guardar o comando pretendido pela aplicação.
-        # Já devolve o estado real mais recente do dispositivo.
         state = db.update_actuator_state(data)
     except (ValueError, TypeError) as error:
         return jsonify({'error': str(error)}), BAD_REQUEST_CODE
     except Exception:
-        # Normalmente é o "too many connections" da BD da escola.
-        # Devolvemos JSON em vez da página de erro HTML do Flask.
+        # normalmente é a bd da escola com demasiadas ligações
         app.logger.exception("Erro ao guardar o comando da app")
-        return jsonify({
-            'error': 'Base de dados ocupada, tenta outra vez.'
-        }), 503
+        return jsonify({'error': 'Base de dados ocupada, tenta outra vez.'}), 503
 
     return jsonify(state), OK_CODE
 
 
-# O dispositivo envia as leituras de temperatura para esta rota.
-
-
+# o arduino envia a temperatura e recebe os comandos da app na resposta
 @app.route('/api/sensores', methods=['POST'])
 def receber_sensores():
-
     if not verificar_token_dispositivo():
         return jsonify({'erro': 'Nao autorizado'}), UNAUTHORIZED_CODE
 
@@ -192,9 +184,7 @@ def receber_sensores():
         }), BAD_REQUEST_CODE
 
     try:
-        # Além da temperatura, o Arduino envia o estado real
-        # (ventoinha e LEDs) para a app mostrar o que está mesmo a acontecer.
-        # O campo 'standby' só vem quando o botão físico do Mokxi foi carregado.
+        # o standby só vem quando carregam no botão do arduino
         reading, estado = db2.guardar_leitura_e_obter_comandos(
             mac=data['mac'],
             sensor=data['sensor'],
@@ -205,7 +195,6 @@ def receber_sensores():
             led_2=data.get('led_2'),
             standby_local=data.get('standby')
         )
-
     except Exception as error:
         app.logger.exception("Erro ao processar dados do dispositivo")
         return jsonify({'erro': str(error)}), 500
@@ -217,7 +206,7 @@ def receber_sensores():
     }), SUCCESS_CODE
 
 
-# O dispositivo consulta os comandos/estado pretendido guardado na base de dados.
+# o arduino também pode só consultar os comandos
 @app.route('/api/atuadores', methods=['GET'])
 def ler_atuadores():
     if not verificar_token_dispositivo():
