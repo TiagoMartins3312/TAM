@@ -1,80 +1,90 @@
-BASE DE DADOS 01/11
+-- Smart Climate — Schema completo
+
 
 CREATE SCHEMA IF NOT EXISTS "TAM_Android";
 
--- Parte para compatibilidade da função crypt() usada no db.py
+-- Necessário para crypt() / gen_salt() usados no db.py
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS "TAM_Android".users (
     id          SERIAL PRIMARY KEY,
     username    VARCHAR(64) UNIQUE NOT NULL,
     password    TEXT NOT NULL,
-    criado_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    criado_em   TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-
-CREATE TABLE IF NOT EXISTS devices (
+CREATE TABLE IF NOT EXISTS "TAM_Android".devices (
     id            SERIAL PRIMARY KEY,
     mac           VARCHAR(17) UNIQUE,
     device_token  VARCHAR(64) UNIQUE,
     name          VARCHAR(64),
     ip            VARCHAR(45),
     firmware      VARCHAR(32),
-    last_seen     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    criado_em     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_seen     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    criado_em     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-
-CREATE TABLE IF NOT EXISTS readings (
+CREATE TABLE IF NOT EXISTS "TAM_Android".readings (
     id           BIGSERIAL PRIMARY KEY,
-    device_id    INTEGER REFERENCES devices(id) ON DELETE CASCADE,
+    device_id    INTEGER REFERENCES "TAM_Android".devices(id) ON DELETE CASCADE,
     sensor       VARCHAR(32) NOT NULL,
-    value        VARCHAR(32) NOT NULL,
-    criado_em    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    value        DOUBLE PRECISION NOT NULL,
+    criado_em    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS "TAM_Android".actuator_state (
+    id            INTEGER PRIMARY KEY,
 
-CREATE TABLE IF NOT EXISTS actuator_state (
-    id          INTEGER PRIMARY KEY,
-    fan_on      BOOLEAN NOT NULL DEFAULT false,
-    fan_speed   INTEGER NOT NULL DEFAULT 0
-                CHECK (fan_speed BETWEEN 0 AND 100),
-    led_1       BOOLEAN NOT NULL DEFAULT false,
-    led_2       BOOLEAN NOT NULL DEFAULT false,
-    mode        VARCHAR(16) NOT NULL DEFAULT 'automatico'
-                CHECK (mode IN ('automatico','manual','noturno')),
--- Isto está certo? Não me lembro dos modos usados
-    temp_on     FLOAT NOT NULL DEFAULT 28.0,
-    temp_off    FLOAT NOT NULL DEFAULT 26.0,
-    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    -- comandos da app
+    fan_on        BOOLEAN NOT NULL DEFAULT false,
+    fan_speed     INTEGER NOT NULL DEFAULT 0
+                  CHECK (fan_speed BETWEEN 0 AND 100),
+    led_1         BOOLEAN NOT NULL DEFAULT false,
+    led_2         BOOLEAN NOT NULL DEFAULT false,
+    mode          VARCHAR(16) NOT NULL DEFAULT 'automatico'
+                  CHECK (mode IN ('automatico','noturno')),
+    temp_on       FLOAT NOT NULL DEFAULT 28.0,
+    temp_off      FLOAT NOT NULL DEFAULT 26.0,
+    standby       BOOLEAN NOT NULL DEFAULT false,
+
+    -- estado físico reportado pelo Arduino
+    fan_actual_on BOOLEAN NOT NULL DEFAULT false,
+    led_1_actual  BOOLEAN NOT NULL DEFAULT false,
+    led_2_actual  BOOLEAN NOT NULL DEFAULT false,
+
+    updated_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Garantir que a linha única do actuator_state existe
+-- Esta versão só suporta um unico actuator
 
--- =====================================================
--- MIGRAÇÃO 20/11 - Standby pela app + estado real do Arduino
--- Correr uma vez no pgAdmin (na BD dos componentes).
--- Pode ser corrido várias vezes sem problema.
--- =====================================================
-
--- Comando de standby (LEDs a piscar, ventoinha desligada).
-ALTER TABLE "TAM_Android".actuator_state
-    ADD COLUMN IF NOT EXISTS standby BOOLEAN NOT NULL DEFAULT false;
-
--- Estado físico reportado pelo Arduino (separado dos comandos da app).
-ALTER TABLE "TAM_Android".actuator_state
-    ADD COLUMN IF NOT EXISTS fan_actual_on BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE "TAM_Android".actuator_state
-    ADD COLUMN IF NOT EXISTS led_1_actual BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE "TAM_Android".actuator_state
-    ADD COLUMN IF NOT EXISTS led_2_actual BOOLEAN NOT NULL DEFAULT false;
-
--- O modo manual deixou de existir.
-UPDATE "TAM_Android".actuator_state
-    SET mode = 'automatico'
-    WHERE mode = 'manual';
-
--- Garantir que a linha única existe.
 INSERT INTO "TAM_Android".actuator_state (id)
     VALUES (1)
     ON CONFLICT (id) DO NOTHING;
+
+-- Trigger — atualizar last_seen a cada leitura
+
+CREATE OR REPLACE FUNCTION "TAM_Android".atualizar_last_seen()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE "TAM_Android".devices
+    SET last_seen = CURRENT_TIMESTAMP
+    WHERE id = NEW.device_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_last_seen ON "TAM_Android".readings;
+
+CREATE TRIGGER trg_last_seen
+    AFTER INSERT ON "TAM_Android".readings
+    FOR EACH ROW
+    EXECUTE FUNCTION "TAM_Android".atualizar_last_seen();
+
+-- Índices úteis
+
+CREATE INDEX IF NOT EXISTS idx_readings_device_criado
+    ON "TAM_Android".readings (device_id, criado_em DESC);
+
+CREATE INDEX IF NOT EXISTS idx_readings_criado
+    ON "TAM_Android".readings (criado_em DESC);
