@@ -4,19 +4,18 @@ import db2
 
 app = Flask(__name__)
 
+# chave que o arduino tem de mandar no cabeçalho X-API-Key
 API_KEY = os.environ.get("API_KEY", "muda-esta-chave")
 
 
+# corre antes de todos os pedidos
 @app.before_request
 def verificar_autenticacao():
     if request.headers.get("X-API-Key") != API_KEY:
         return jsonify({"erro": "API key inválida."}), 401
 
 
-# ==========================
-# Dispositivos
-# ==========================
-
+# registar um arduino
 @app.route("/devices/register", methods=["POST"])
 def api_register_device():
     data = request.get_json(silent=True)
@@ -36,6 +35,7 @@ def api_register_device():
     return jsonify(device), 201
 
 
+# lista dos arduinos
 @app.route("/devices", methods=["GET"])
 def api_list_devices():
     try:
@@ -45,6 +45,7 @@ def api_list_devices():
     return jsonify(devices)
 
 
+# dados de um arduino
 @app.route("/devices/<mac>", methods=["GET"])
 def api_get_device(mac):
     try:
@@ -57,10 +58,7 @@ def api_get_device(mac):
     return jsonify(device)
 
 
-# ==========================
-# Leituras
-# ==========================
-
+# guardar uma temperatura
 @app.route("/readings", methods=["POST"])
 def api_add_reading():
     data = request.get_json(silent=True)
@@ -83,6 +81,7 @@ def api_add_reading():
     return jsonify(reading), 201
 
 
+# guardar várias temperaturas
 @app.route("/readings/bulk", methods=["POST"])
 def api_add_readings_bulk():
     data = request.get_json(silent=True)
@@ -102,6 +101,7 @@ def api_add_readings_bulk():
     return jsonify({"count": len(gravadas), "items": gravadas}), 201
 
 
+# temperaturas de um arduino
 @app.route("/readings/<mac>", methods=["GET"])
 def api_get_readings(mac):
     limit = request.args.get("limit", default=100, type=int)
@@ -112,13 +112,7 @@ def api_get_readings(mac):
     return jsonify(readings)
 
 
-# ==========================
-# Atuadores (reexportados de db.py — estado partilhado id = 1)
-# ==========================
-# Nota: aceita /actuators e /actuators/<mac>. O MAC é ignorado por agora
-# (o schema atual tem uma única linha id = 1). Quando migrares para
-# multi-dispositivo, passas a usá-lo na query.
-
+# ver os comandos, o mac não é usado porque só há um arduino
 @app.route("/actuators", methods=["GET"])
 @app.route("/actuators/<mac>", methods=["GET"])
 def api_get_actuators(mac=None):
@@ -132,6 +126,7 @@ def api_get_actuators(mac=None):
     return jsonify(state)
 
 
+# alterar os comandos
 @app.route("/actuators", methods=["PUT"])
 @app.route("/actuators/<mac>", methods=["PUT"])
 def api_update_actuators(mac=None):
@@ -148,10 +143,6 @@ def api_update_actuators(mac=None):
 
     return jsonify(state)
 
-
-# ==========================
-# Arranque
-# ==========================
-
+# Quando o programa é executado a partir deste ficheiro
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
