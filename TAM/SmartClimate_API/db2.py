@@ -1,48 +1,8 @@
-import os
-import psycopg2
-from contextlib import contextmanager
-
-# Reexporta as funções de atuadores de db.py — o estado é o mesmo (id = 1)
-# para a app Android e para o Arduino; não há duplicação de lógica.
-from db import get_actuator_state, update_actuator_state
+# a ligação e as funções dos atuadores são as mesmas do db.py
+from db import get_connection, get_actuator_state, update_actuator_state
 
 
-# Liga à base de dados e fecha sempre a ligação no final.
-@contextmanager
-def get_connection():
-    conn = psycopg2.connect(
-        host=os.environ.get("DATABASE_HOST"),
-        port=int(os.environ.get("DATABASE_PORT", "5432")),
-        database=os.environ.get("DATABASE_NAME"),
-        user=os.environ.get("DATABASE_USER"),
-        password=os.environ.get("PASSWORD")
-    )
-
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-# ==========================
-# Dispositivos (Arduino)
-# ==========================
-
-def device_exists(mac):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                'SELECT COUNT(*) FROM "TAM_Android".devices WHERE mac = %s',
-                (mac,)
-            )
-            count = cur.fetchone()[0]
-    return count > 0
-
-
+# registar o arduino, se o mac já existir só atualiza os dados
 def register_device(mac, name=None, ip=None, firmware=None):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -70,6 +30,7 @@ def register_device(mac, name=None, ip=None, firmware=None):
     }
 
 
+# dados de um arduino pelo mac
 def get_device(mac):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -93,6 +54,7 @@ def get_device(mac):
     }
 
 
+# todos os arduinos registados
 def get_all_devices():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -116,10 +78,7 @@ def get_all_devices():
     return devices
 
 
-# ==========================
-# Leituras por dispositivo (Arduino)
-# ==========================
-
+# guardar uma temperatura de um arduino
 def add_reading_by_device(mac, sensor, value):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -129,9 +88,7 @@ def add_reading_by_device(mac, sensor, value):
             )
             row = cur.fetchone()
             if row is None:
-                raise ValueError(
-                    "O dispositivo %s não está registado." % mac
-                )
+                raise ValueError("O dispositivo %s não está registado." % mac)
             device_id = row[0]
 
             cur.execute(
@@ -155,6 +112,7 @@ def add_reading_by_device(mac, sensor, value):
     }
 
 
+# guardar várias temperaturas de uma vez
 def add_readings_by_device_bulk(mac, readings):
     if not readings:
         raise ValueError("A lista de leituras não pode estar vazia.")
@@ -167,9 +125,7 @@ def add_readings_by_device_bulk(mac, readings):
             )
             row = cur.fetchone()
             if row is None:
-                raise ValueError(
-                    "O dispositivo %s não está registado." % mac
-                )
+                raise ValueError("O dispositivo %s não está registado." % mac)
             device_id = row[0]
 
             cur.execute(
@@ -201,6 +157,7 @@ def add_readings_by_device_bulk(mac, readings):
     return gravadas
 
 
+# temperaturas de um arduino
 def get_readings_by_device(mac, limit=100):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -224,27 +181,15 @@ def get_readings_by_device(mac, limit=100):
     return readings
 
 
-def update_actuator_outputs(fan_on, led_1, led_2):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                'UPDATE "TAM_Android".actuator_state '
-                'SET fan_on = %s, led_1 = %s, led_2 = %s, '
-                'updated_at = CURRENT_TIMESTAMP '
-                'WHERE id = 1',
-                (fan_on, led_1, led_2)
-            )
-
-
+# função que o arduino usa: guarda o que ele enviou e devolve os comandos da app
+# é tudo na mesma ligação para não abrir várias à bd
 def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None,
                                      fan_actual_on=None, led_1=None,
                                      led_2=None, standby_local=None):
-
     with get_connection() as conn:
         with conn.cursor() as cur:
 
-            # Estado físico real que o Arduino está a aplicar.
-            # Fica em colunas próprias para nunca apagar os comandos da app.
+            # estado real do arduino, fica noutras colunas para não apagar os comandos da app
             if fan_actual_on is not None:
                 cur.execute(
                     'UPDATE "TAM_Android".actuator_state '
@@ -255,7 +200,7 @@ def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None,
                     (fan_actual_on, led_1, led_2)
                 )
 
-            # O botão físico do Mokxi mudou o standby: passa a ser o comando.
+            # só vem preenchido quando alguém carregou no botão do arduino
             if standby_local is not None:
                 cur.execute(
                     'UPDATE "TAM_Android".actuator_state '
@@ -264,7 +209,7 @@ def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None,
                     (standby_local,)
                 )
 
-            # Registar o dispositivo
+            # registar o arduino
             cur.execute(
                 'INSERT INTO "TAM_Android".devices '
                 '(mac, name, ip, firmware, last_seen) '
@@ -280,7 +225,7 @@ def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None,
 
             device_id = cur.fetchone()[0]
 
-            # Guardar temperatura
+            # guardar a temperatura
             cur.execute(
                 'INSERT INTO "TAM_Android".readings '
                 '(device_id, sensor, value) '
@@ -291,7 +236,7 @@ def guardar_leitura_e_obter_comandos(mac, sensor, value, ip=None,
 
             leitura = cur.fetchone()
 
-            # Consultar comandos da aplicação
+            # ir buscar os comandos da app
             cur.execute(
                 'SELECT fan_on, fan_speed, led_1, led_2, mode, '
                 'temp_on, temp_off, updated_at, standby '
