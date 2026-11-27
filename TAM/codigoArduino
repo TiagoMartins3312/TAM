@@ -1,48 +1,24 @@
 #include <WiFiNINA.h>
 #include <ArduinoHttpClient.h>
 
-// So funciona em redes 2.4 GHz com password normal (WPA2).
-// O eduroam nao funciona: usar o hotspot do telemovel.
-const char* WIFI_SSID = "S25ultraTiago";
-const char* WIFI_PASS = "benficaemerda";
+// variáveis sobre o Wifi, link de API, sensor, leds, relay e outras
+#include "secrets.h"
+#include "config.h"
 
-// Servidor da API (sem https:// e sem / no fim)
-const char* API_HOST = "tam-omega-silk.vercel.app";
-const char* API_CAMINHO = "/api/sensores";
+// ============================================================
+// MAC do próprio módulo Wi-Fi (lido em runtime, não hardcoded)
+// ============================================================
+char MAC_DISPOSITIVO[18];   // "AA:BB:CC:DD:EE:FF\0"
 
-const char* API_TOKEN = "G56JtE4__scV3bBt2cP36p-JKmnLC_a-3-q7IaUPmT0";
+void lerMac() {
+  byte mac[6];
+  WiFi.macAddress(mac);
+  snprintf(MAC_DISPOSITIVO, sizeof(MAC_DISPOSITIVO),
+           "%02X:%02X:%02X:%02X:%02X:%02X",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
 
-// Identificação do Arduino
-const char* MAC_DISPOSITIVO = "02:00:00:00:00:01";
-
-// Pinos
-const int SENSOR = A0;
-const int BOTAO = 2;
-const int LED_VERDE = 3;
-const int LED_VERMELHO = 4;
-const int RELE = 5;
-
-// Alguns modulos de rele reais ligam com LOW em vez de HIGH.
-// Se a lampada fizer o contrario do que devia, trocar estes dois.
-const int RELE_LIGADO = HIGH;
-const int RELE_DESLIGADO = LOW;
-
-// Temperatura limite do modo automático
-const float LIMITE_TEMPERATURA = 24.0;
-
-// Intervalos
-const unsigned long INTERVALO_LEITURA = 5000UL;
-const unsigned long INTERVALO_API = 5000UL;
-
-// Numero de leituras para fazer a media (mais leituras = menos ruido)
-const int NUMERO_LEITURAS = 50;
-
-// Ajuste de calibracao: diferenca entre o TMP36 e um termometro real.
-// Ex.: termometro 23.0 C e Arduino 26.0 C -> AJUSTE = -3.0
-const float AJUSTE_TEMPERATURA = 0.0;
-
-// Comunicação
-// Ligacao segura (HTTPS, porta 443) ao Vercel
+// ligação https à Vercel
 WiFiSSLClient clienteSSL;
 HttpClient http(clienteSSL, API_HOST, 443);
 
@@ -51,25 +27,26 @@ unsigned long ultimaLeituraTemperatura = 0;
 unsigned long ultimoEnvioAPI = 0;
 
 bool wifiIniciado = false;
+bool estavaLigadoWiFi = false;   // para logar o IP só na transição
 bool temLeitura = false;
 bool enviarImediatamente = true;
 
-// Estado do sistema
+// estado do sistema
 float temperatura = 0.0;
 
-// Comando da app: true = ventoinha pode ligar (automático pela temperatura)
-//                 false = ventoinha desligada pela app
+// true = pode ligar pela temperatura, false = desligada pela app
 bool comandoVentoinhaLigada = false;
+// o que a ventoinha está mesmo a fazer
 bool ventoinhaLigadaReal = false;
 
-// Standby (pode vir da app ou do botão físico)
+// standby, pela app ou pelo botão
 bool standby = false;
 bool ledsLigados = false;
 
-// Fica true quando o botão físico muda o standby e ainda
-// não avisámos a API (para a app não o desfazer logo a seguir)
+// fica true quando o botão muda o standby e ainda não avisámos a api
 bool standbyPendente = false;
 
+// botão
 bool ultimaLeituraBotao = HIGH;
 bool estadoBotao = HIGH;
 bool botaoArmado = false;
@@ -78,10 +55,7 @@ unsigned long ultimaMudancaBotao = 0;
 unsigned long ultimoPiscar = 0;
 
 
-// ================================================
-// PROTOTIPOS
-// ================================================
-
+// protótipos
 void ligarWiFi();
 float lerTemperatura();
 void controlarSistema();
@@ -92,18 +66,21 @@ String extrairObjetoJSON(String json, String campo);
 String lerCampoJSON(String json, String campo);
 
 
-// ================================================
-// LIGAR WI-FI
-// ================================================
-
+// liga ao wifi, se falhar volta a tentar passados 10 segundos
 void ligarWiFi() {
-
   if (WiFi.status() == WL_CONNECTED) {
+    // só loga o IP quando a ligação acabou de ser estabelecida
+    if (!estavaLigadoWiFi) {
+      Serial.print("Wi-Fi ligado. IP: ");
+      Serial.println(WiFi.localIP());
+      estavaLigadoWiFi = true;
+    }
     return;
   }
 
-  if (wifiIniciado &&
-      millis() - ultimaTentativaWiFi < 10000UL) {
+  estavaLigadoWiFi = false;
+
+  if (wifiIniciado && millis() - ultimaTentativaWiFi < 10000UL) {
     return;
   }
 
@@ -111,29 +88,16 @@ void ligarWiFi() {
   wifiIniciado = true;
 
   Serial.println("A ligar ao Wi-Fi...");
-
-  // Na WiFiNINA o begin espera uns segundos pela ligacao
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("Wi-Fi ligado. IP: ");
-    Serial.println(WiFi.localIP());
-  }
 }
 
 
-// ================================================
-// LER TEMPERATURA - TMP36
-// ================================================
-
+// ler a temperatura do TMP36
 float lerTemperatura() {
-
-  // A primeira leitura depois de outras coisas (Wi-Fi, etc.)
-  // costuma vir errada, por isso deitamos fora
+  // a primeira leitura costuma vir errada, não conta
   analogRead(SENSOR);
   delay(5);
 
-  // Fazer a media de 50 leituras para tirar o ruido
   long soma = 0;
 
   for (int i = 0; i < NUMERO_LEITURAS; i++) {
@@ -143,76 +107,53 @@ float lerTemperatura() {
 
   float valorADC = (float) soma / NUMERO_LEITURAS;
 
-  // Referencia interna de 2.5 V.
-  // O datasheet do ATmega4809 diz que o ADC divide por 1024 (e nao 1023)
+  // passar para mV, referência 2.5 V, ADC de 10 bits (1024)
   float tensao = valorADC * 2500.0 / 1024.0;
 
-  // Prints extra para confirmar o sensor
   Serial.print("ADC: ");
   Serial.print(valorADC);
   Serial.print(" | Tensao: ");
   Serial.print(tensao);
   Serial.println(" mV");
 
-  // O TMP36 so da entre 100 mV (-40 C) e 1750 mV (125 C).
-  // Fora disto e porque esta mal ligado ou estragado.
   if (tensao < 100.0 || tensao > 1750.0) {
     Serial.println("AVISO: leitura do TMP36 fora do normal. Verificar ligacoes.");
   }
 
-  // TMP36: 500 mV a 0 graus Celsius e 10 mV por grau
-  // + ajuste de calibracao com um termometro
+  // no TMP36 0 graus são 500 mV e cada grau são 10 mV
   return (tensao - 500.0) / 10.0 + AJUSTE_TEMPERATURA;
 }
 
-// ================================================
-// EXTRAIR UM CAMPO DE UM JSON
-// ================================================
 
+// ir buscar o valor de um campo ao json
 String lerCampoJSON(String json, String campo) {
-
   String chave = "\"" + campo + "\"";
 
   int posicao = json.indexOf(chave);
+  if (posicao < 0) return "";
 
-  if (posicao < 0) {
-    return "";
-  }
-
-  int doisPontos = json.indexOf(
-    ':',
-    posicao + chave.length()
-  );
-
-  if (doisPontos < 0) {
-    return "";
-  }
+  int doisPontos = json.indexOf(':', posicao + chave.length());
+  if (doisPontos < 0) return "";
 
   int inicio = doisPontos + 1;
 
   while (inicio < json.length() &&
-         (json.charAt(inicio) == ' ' ||
+         (json.charAt(inicio) == ' '  ||
           json.charAt(inicio) == '\n' ||
           json.charAt(inicio) == '\r' ||
           json.charAt(inicio) == '\t')) {
     inicio++;
   }
 
-  // Valor em formato de texto
+  // se for texto
   if (json.charAt(inicio) == '"') {
-
     int fim = json.indexOf('"', inicio + 1);
-
-    if (fim < 0) {
-      return "";
-    }
-
+    if (fim < 0) return "";
     return json.substring(inicio + 1, fim);
   }
 
-  // Valor booleano ou numérico
+  // se for número ou true/false
   int fim = inicio;
-
   while (fim < json.length() &&
          json.charAt(fim) != ',' &&
          json.charAt(fim) != '}' &&
@@ -222,69 +163,38 @@ String lerCampoJSON(String json, String campo) {
 
   String valor = json.substring(inicio, fim);
   valor.trim();
-
   return valor;
 }
 
 
-// ================================================
-// EXTRAIR O OBJETO "actuators" DA RESPOSTA
-// ================================================
-
+// tirar só a parte do json que está entre { }
 String extrairObjetoJSON(String json, String campo) {
-
   String chave = "\"" + campo + "\"";
 
   int posicao = json.indexOf(chave);
-
-  if (posicao < 0) {
-    return "";
-  }
+  if (posicao < 0) return "";
 
   int inicio = json.indexOf('{', posicao);
-
-  if (inicio < 0) {
-    return "";
-  }
+  if (inicio < 0) return "";
 
   int fim = json.indexOf('}', inicio);
-
-  if (fim < 0) {
-    return "";
-  }
+  if (fim < 0) return "";
 
   return json.substring(inicio, fim + 1);
 }
 
 
-// ================================================
-// RECEBER COMANDOS DA APLICAÇÃO
-// ================================================
-
-
+// ler os comandos da app que vêm na resposta da api
 bool receberComandos(String resposta) {
-
-  String atuadores = extrairObjetoJSON(
-    resposta,
-    "actuators"
-  );
+  String atuadores = extrairObjetoJSON(resposta, "actuators");
 
   if (atuadores.length() == 0) {
     Serial.println("ERRO: resposta sem objeto actuators.");
     return false;
   }
 
-  // O modo manual foi retirado, por isso já não lemos o "mode".
-  // Agora só interessam estes dois comandos da app:
-  String novoEstado = lerCampoJSON(
-    atuadores,
-    "fan_on"
-  );
-
-  String novoStandby = lerCampoJSON(
-    atuadores,
-    "standby"
-  );
+  String novoEstado  = lerCampoJSON(atuadores, "fan_on");
+  String novoStandby = lerCampoJSON(atuadores, "standby");
 
   if (novoEstado.length() == 0 || novoStandby.length() == 0) {
     Serial.println("ERRO: comandos incompletos.");
@@ -295,27 +205,21 @@ bool receberComandos(String resposta) {
 
   bool standbyDaApp = (novoStandby == "true");
 
-  // Se o standby mudou pela app, começa a piscar do zero
   if (standbyDaApp != standby) {
-
     standby = standbyDaApp;
-
     ledsLigados = false;
-
     ultimoPiscar = millis();
 
-    Serial.println(
-      standby ? "STANDBY ATIVADO PELA APP" : "STANDBY DESATIVADO PELA APP"
-    );
+    Serial.println(standby ? "STANDBY ATIVADO PELA APP"
+                           : "STANDBY DESATIVADO PELA APP");
   }
 
   Serial.println("----------------------------");
   Serial.println("COMANDOS RECEBIDOS DA APP");
 
   Serial.print("Ventoinha: ");
-  Serial.println(
-    comandoVentoinhaLigada ? "PERMITIDA (AUTOMATICO)" : "DESLIGADA PELA APP"
-  );
+  Serial.println(comandoVentoinhaLigada ? "PERMITIDA (AUTOMATICO)"
+                                        : "DESLIGADA PELA APP");
 
   Serial.print("Standby: ");
   Serial.println(standby ? "SIM" : "NAO");
@@ -325,60 +229,41 @@ bool receberComandos(String resposta) {
   return true;
 }
 
-// ================================================
-// CONTROLAR VENTOINHA E LEDS
-// ================================================
 
+// controlar a ventoinha (relé) e os leds
 void controlarSistema() {
-
-  bool ligarVentoinha = false;
-
-  // STANDBY
+  // em standby a ventoinha fica desligada
   if (standby) {
-
     digitalWrite(RELE, RELE_DESLIGADO);
     ventoinhaLigadaReal = false;
-
     return;
   }
 
-  // MODO AUTOMATICO
-  // A ventoinha só liga se a app deixar (fan_on = true)
-  // E se a temperatura passar o limite.
-  // Se a app mandar desligar, fica desligada seja qual for a temperatura.
-  ligarVentoinha = comandoVentoinhaLigada &&
-                   temperatura > LIMITE_TEMPERATURA;
+  // só liga se a app deixar e se a temperatura passar o limite
+  bool ligarVentoinha = comandoVentoinhaLigada && temperatura > LIMITE_TEMPERATURA;
 
-  // CONTROLAR RELE
   digitalWrite(RELE, ligarVentoinha ? RELE_LIGADO : RELE_DESLIGADO);
-
   ventoinhaLigadaReal = ligarVentoinha;
 
-  // LEDS DE TEMPERATURA
+  // vermelho = quente, verde = normal
   if (temperatura > LIMITE_TEMPERATURA) {
-
     digitalWrite(LED_VERDE, LOW);
     digitalWrite(LED_VERMELHO, HIGH);
-  }
-
-  else {
-
+  } else {
     digitalWrite(LED_VERDE, HIGH);
     digitalWrite(LED_VERMELHO, LOW);
   }
 }
 
-// ================================================
-// ENVIAR TEMPERATURA E RECEBER COMANDOS
-// ================================================
 
+// enviar a temperatura para a api e receber os comandos
 void enviarTemperatura() {
-
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("Wi-Fi desligado.");
     return;
   }
 
+  // criar o json à mão
   String json = "{\"sensor\":\"TMP36\",\"value\":";
   json += String(temperatura, 2);
 
@@ -390,8 +275,7 @@ void enviarTemperatura() {
   json += API_TOKEN;
   json += "\"";
 
-  // Estado REAL da ventoinha (antes chamava-se "fan_on", mas isso
-  // apagava o comando da app na base de dados)
+  // estado real da ventoinha
   json += ",\"fan_actual_on\":";
   json += (ventoinhaLigadaReal ? "true" : "false");
 
@@ -401,7 +285,7 @@ void enviarTemperatura() {
   json += ",\"led_2\":";
   json += (digitalRead(LED_VERMELHO) ? "true" : "false");
 
-  // Só mandamos o standby quando foi o botão físico a mudá-lo
+  // o standby só vai quando foi o botão a mudar
   if (standbyPendente) {
     json += ",\"standby\":";
     json += (standby ? "true" : "false");
@@ -412,8 +296,6 @@ void enviarTemperatura() {
   Serial.println("A enviar dados para a API...");
   Serial.println(json);
 
-  // Pedido POST com a ArduinoHttpClient (exemplo "CustomHeader"
-  // da biblioteca): primeiro os cabecalhos, depois o corpo JSON.
   http.setHttpResponseTimeout(10000);
 
   http.beginRequest();
@@ -425,8 +307,6 @@ void enviarTemperatura() {
   http.print(json);
   http.endRequest();
 
-  // Codigos negativos sao erros da ligacao:
-  // -1 = falhou a ligacao, -3 = demorou demasiado, -4 = resposta invalida
   int codigoHTTP = http.responseStatusCode();
 
   Serial.print("Codigo HTTP: ");
@@ -437,59 +317,44 @@ void enviarTemperatura() {
   Serial.println("Resposta da API:");
   Serial.println(resposta);
 
-  // Fechar a ligacao para a proxima vez comecar do zero
   http.stop();
 
   if (codigoHTTP == 201 || codigoHTTP == 200) {
-
-    // A API já guardou o standby do botão físico
+    // a api já guardou o standby do botão
     standbyPendente = false;
 
-    // Guardar o estado antes dos comandos para ver se mudou algo
     bool ventoinhaAntes = ventoinhaLigadaReal;
-    bool standbyAntes = standby;
+    bool standbyAntes   = standby;
 
     if (receberComandos(resposta)) {
       controlarSistema();
 
       Serial.println("Comandos aplicados no Arduino.");
 
-      // Se a app mudou alguma coisa, voltamos a enviar logo
-      // para a app ver o novo estado real (sem esperar 5 s)
-      if (ventoinhaLigadaReal != ventoinhaAntes ||
-          standby != standbyAntes) {
+      // se mudou alguma coisa envia logo outra vez
+      if (ventoinhaLigadaReal != ventoinhaAntes || standby != standbyAntes) {
         enviarImediatamente = true;
       }
     }
-  }
-
-  else {
+  } else {
     Serial.println("Erro na comunicacao com a API.");
   }
 }
 
 
-// ================================================
-// BOTAO LOCAL - STANDBY
-// ================================================
-
+// botão do standby
 void processarBotao() {
-
   bool leitura = digitalRead(BOTAO);
-
   unsigned long agora = millis();
 
   if (leitura != ultimaLeituraBotao) {
-
     ultimaLeituraBotao = leitura;
-
     ultimaMudancaBotao = agora;
   }
 
+  // debounce de 50 ms
   if (agora - ultimaMudancaBotao >= 50) {
-
     if (leitura != estadoBotao) {
-
       estadoBotao = leitura;
 
       if (estadoBotao == HIGH) {
@@ -497,29 +362,19 @@ void processarBotao() {
       }
 
       if (estadoBotao == LOW && botaoArmado) {
-
         botaoArmado = false;
-
         standby = !standby;
-
         ledsLigados = false;
-
         ultimoPiscar = agora;
 
-        // Avisar a API logo a seguir para a app ficar igual ao Arduino
+        // avisar a api para a app ficar igual
         standbyPendente = true;
-
         enviarImediatamente = true;
 
         if (standby) {
-
           Serial.println("STANDBY ATIVO (BOTAO)");
-        }
-
-        else {
-
+        } else {
           temLeitura = false;
-
           Serial.println("STANDBY DESATIVADO (BOTAO)");
         }
 
@@ -530,44 +385,38 @@ void processarBotao() {
 }
 
 
-// ================================================
-// SETUP
-// ================================================
-
 void setup() {
-
   Serial.begin(115200);
 
-  // Referencia interna fixa de 2.5 V (nao depende da USB nem do Wi-Fi)
-  // Ref: datasheet ATmega4809 (VREF) e Arduino.h do core megaAVR (INTERNAL2V5)
+  // referência interna de 2.5 V para a leitura ser mais certa
   analogReference(INTERNAL2V5);
 
-  // A primeira leitura depois de mudar a referencia nao conta
+  // primeira leitura (descartada)
   analogRead(SENSOR);
 
+  // pinos
   pinMode(BOTAO, INPUT_PULLUP);
-
   pinMode(LED_VERDE, OUTPUT);
   pinMode(LED_VERMELHO, OUTPUT);
-
   pinMode(RELE, OUTPUT);
 
+  // estado inicial
   digitalWrite(LED_VERDE, LOW);
   digitalWrite(LED_VERMELHO, LOW);
-
   digitalWrite(RELE, RELE_DESLIGADO);
 
   estadoBotao = digitalRead(BOTAO);
-
   ultimaLeituraBotao = estadoBotao;
-
   botaoArmado = (estadoBotao == HIGH);
-
   ultimaMudancaBotao = millis();
 
-  // Confirmar que o modulo Wi-Fi da placa responde
   if (WiFi.status() == WL_NO_MODULE) {
     Serial.println("ERRO: modulo Wi-Fi nao encontrado.");
+  } else {
+    // MAC real do módulo — sem hardcoded
+    lerMac();
+    Serial.print("MAC do dispositivo: ");
+    Serial.println(MAC_DISPOSITIVO);
   }
 
   ligarWiFi();
@@ -578,66 +427,44 @@ void setup() {
   Serial.println("Modo inicial: automatico");
 }
 
-// ================================================
-// LOOP
-// ================================================
 
 void loop() {
-
   ligarWiFi();
 
   processarBotao();
 
   unsigned long agora = millis();
 
-  // Ler temperatura
-  if (!temLeitura ||
-      agora - ultimaLeituraTemperatura >= INTERVALO_LEITURA) {
-
+  // ler a temperatura de 5 em 5 segundos
+  if (!temLeitura || agora - ultimaLeituraTemperatura >= INTERVALO_LEITURA) {
     temperatura = lerTemperatura();
-
     ultimaLeituraTemperatura = millis();
-
     temLeitura = true;
 
     Serial.print("Temperatura: ");
-
     Serial.print(temperatura, 2);
-
     Serial.println(" C");
   }
 
-  // Aplicar os comandos atuais (app + temperatura)
   controlarSistema();
 
-  // Standby: piscar os dois LEDs
+  // em standby os dois leds piscam
   if (standby) {
-
     if (agora - ultimoPiscar >= 300) {
-
       ultimoPiscar = agora;
-
       ledsLigados = !ledsLigados;
     }
 
-    digitalWrite(
-      LED_VERDE,
-      ledsLigados ? HIGH : LOW
-    );
-
-    digitalWrite(
-      LED_VERMELHO,
-      ledsLigados ? HIGH : LOW
-    );
+    digitalWrite(LED_VERDE, ledsLigados ? HIGH : LOW);
+    digitalWrite(LED_VERMELHO, ledsLigados ? HIGH : LOW);
   }
 
-  // Enviar temperatura e consultar comandos
+  // enviar para a api
   if (enviarImediatamente ||
       ultimoEnvioAPI == 0 ||
       agora - ultimoEnvioAPI >= INTERVALO_API) {
 
-    // Pomos a false ANTES de enviar, porque o enviarTemperatura()
-    // pode voltar a pô-la a true se a app tiver mudado alguma coisa
+    // tem de ser antes, porque enviarTemperatura pode pôr a true outra vez
     enviarImediatamente = false;
 
     enviarTemperatura();
